@@ -25,6 +25,7 @@ This repository contains firmware and scripts that drive two Stepperonline 23HS3
 |---|---|---|---|
 | [`dual_stepper_mega/dual_stepper_mega.ino`](dual_stepper_mega/dual_stepper_mega.ino) | Arduino Mega 2560 | **Current (main)** | Constant-rate displacement trials on **both** motors in lockstep, controlled from the Serial Monitor |
 | [`single_driver_test/single_driver_test.ino`](single_driver_test/single_driver_test.ino) | Arduino Mega 2560 | **Current** | Bring-up tests plus the same displacement trials on **one** selected driver/motor |
+| [`serial_logger.py`](serial_logger.py) | PC (Python 3) | **Current** | Serial terminal for either Mega sketch that also saves the session to `Outputs/<date>_<time>_<sketch>.log` |
 | [`Controller1.0.py`](Controller1.0.py) | Raspberry Pi 5 | Legacy prototype | Single-motor control via `gpiozero`; includes DIP switch notes |
 
 See [Displacement trials](#displacement-trials) for how to set the rate and distance, run a trial and cancel it.
@@ -180,7 +181,7 @@ The drivers connect **directly** to the Mega; no transistors are needed. Each dr
 3. Open `dual_stepper_mega/dual_stepper_mega.ino`. The IDE requires each sketch to sit in a folder with the same name.
 4. Select **Tools → Board → Arduino AVR Boards → Arduino Mega or Mega 2560**, set **Processor: ATmega2560 (Mega 2560)**, and pick the correct port.
 5. Click **Upload**.
-6. Open **Serial Monitor** at **115200 baud** (any line ending) and use the [trial commands](#displacement-trials).
+6. Run `python serial_logger.py` to get a terminal **and a log file** (see [Logging](#logging-trials-to-a-file)), or open the IDE's **Serial Monitor** at **115200 baud** (any line ending; no log). Then use the [trial commands](#displacement-trials).
 
 If Timer1 can't be configured at startup, the sketch prints an error and **rapidly blinks the onboard LED** (D13) instead of running.
 
@@ -192,7 +193,8 @@ If Timer1 can't be configured at startup, the sketch prints an error and **rapid
 | `STEPS_PER_REV` | top of file | 400 | Must match SW5–8 on both drivers |
 | `SCREW_LEAD_MM` | top of file | 5.0 | Ball screw travel per motor revolution |
 | `DEFAULT_RATE_MM_S` / `DEFAULT_DISTANCE_MM` | top of file | 0.5 / 10.0 | Trial settings at power-up (change at run time with `v` / `d`) |
-| `MIN_RATE_MM_S` / `MAX_RATE_MM_S` | top of file | 0.01 / 20.0 | Allowed rate range. 20 mm/s = 1600 steps/s = 240 RPM. |
+| `MAX_MOTOR_RPM` | top of file | 120 | Motor speed limit; see [Rate limit](#rate-limit). Sets `MAX_RATE_MM_S`. |
+| `MIN_RATE_MM_S` / `MAX_RATE_MM_S` | top of file | 0.01 / 10.0 | Allowed rate range. 10 mm/s = 800 steps/s = 120 RPM. |
 | `MAX_DISTANCE_MM` | top of file | 100.0 | Largest single trial. **TODO: set to the real beam travel.** |
 | `OPEN_DIR_HIGH` | top of file | `true` | DIR level that opens the beam. Flip it if `o` moves the wrong way. |
 | `INVERT_B` | top of file | `false` | Set `true` if motor B is mounted mirrored and turns opposite to A |
@@ -218,7 +220,7 @@ A **trial** moves the beam a set distance at a constant displacement rate. The m
 
 | Command | Action |
 |---|---|
-| `v<mm/s>` | Set displacement rate, e.g. `v0.5` (0.01–20 mm/s) |
+| `v<mm/s>` | Set displacement rate, e.g. `v0.5` (0.01–10 mm/s; see [Rate limit](#rate-limit)) |
 | `d<mm>` | Set trial distance, e.g. `d20` (0.0125–100 mm) |
 | `o` | Run trial: **open** by the set distance at the set rate |
 | `c` | Run trial: **close** by the set distance at the set rate |
@@ -249,6 +251,46 @@ After a cancel, the sketch reports the partial distance, and the position stays 
 - Distances are rounded to whole steps (0.0125 mm). The trial printout shows the exact step count and the actual timer rate.
 
 The rate is set by the hardware timer, not by the load. Each pulse moves the screw exactly one step, so the displacement rate stays constant while the force on the motors changes, **provided the motors do not stall**. The system is open loop, with no encoder or limit switches, so a stall is not detected. Signs of a stall are an elapsed time that doesn't match distance/rate, a buzzing or grinding motor, or a measured displacement that is short. If you see any of these, lower the rate or raise the driver current (SW1–3). There is deliberately **no acceleration ramp**: a ramp would make the start and end of the trial slower than the set rate. At trial speeds (tens to hundreds of steps/s) the motor starts reliably without one.
+
+### Rate limit
+
+The rate is capped at **`MAX_MOTOR_RPM` = 120 RPM**, which is **10 mm/s** (800 steps/s). A request above the cap is rejected with an error, and the previous rate is kept:
+
+```
+v15  -> ERROR: 15.0000 mm/s exceeds the motor limit of 10.00 mm/s (120 RPM). Rate unchanged.
+```
+
+Why 120 RPM for the 23HS30-3004S (1.89 N·m holding, 4.8 mH, 1.13 Ω, 440 g·cm² rotor):
+
+- **Torque roll-off.** Torque stays near its low-speed value until the driver can no longer push full current through the coil inductance each step. That happens at about `V / (2·L·I)` full steps/s. At 2.37 A peak this is about **320 RPM at 24 V** and **630 RPM at 48 V**. 120 RPM is well under that for any supply in the DM542T's 18–50 V range, so close to full torque is available at every allowed rate.
+- **No-ramp start.** Trials start at full rate from standstill, because a ramp would break the constant rate. The motor has to lock onto the rate within the first step while also accelerating the ball screw's inertia. Low speeds give a comfortable margin for that.
+- The ISR itself can go much faster (`MAX_STEP_RATE_HZ` = 20000), so the motor, not the code, sets this limit.
+
+If a faster rate is needed and the supply is 36–48 V, `MAX_MOTOR_RPM` can be raised. Test it under the real load first, and check that the elapsed time still matches distance/rate. The limit is an estimate from the published specs; the torque-curve PDF couldn't be read here.
+
+### Logging trials to a file
+
+The Mega has no clock or storage, so logging runs on the PC. [`serial_logger.py`](serial_logger.py) replaces the Arduino Serial Monitor. It shows everything the Mega prints and sends what you type (press Enter). It also writes the whole session to a log file named after the start date, the start time and the sketch that is running:
+
+```
+Outputs/2026-09-28_14-30-05_dual_stepper_mega.log
+Outputs/2026-09-28_15-02-41_single_driver_test.log
+```
+
+Setup (once) and run:
+
+```bash
+pip install pyserial
+python serial_logger.py              # auto-detects the Mega
+python serial_logger.py --port COM5  # or name the port
+```
+
+- **Log contents:** every line gets a PC timestamp, and your commands are logged as `> command`. The log starts with a short header giving the sketch, start time and port.
+- **Sketch name:** each sketch prints `Sketch: <name>` at startup (`SKETCH_NAME` at the top of the file). Opening the port resets the Mega, so the logger reads that line to name the file. If it doesn't arrive, the logger sends `?` to get the menu; if that fails too, the file is named `unknown_sketch`.
+- **Cancel:** works the same as in the Serial Monitor: type `x` and press Enter.
+- **Exit:** Ctrl+C or `quit`. On exit the logger sends a cancel, so no trial keeps running after the terminal closes.
+- **Port conflict:** only one program can have the port open at a time. Close the Arduino Serial Monitor before running the logger.
+- **Not in git:** `Outputs/` and `*.log` are in `.gitignore`, so logs stay local.
 
 Position is counted from power-up (or the last `z`). It is lost on reset, so set zero at a known beam position before each test.
 
@@ -284,7 +326,7 @@ The motor and the power supply connect only to the driver. Set S2 = 5V and SW1�
 | `a` / `b` | Select driver A (D22/D24) or B (D23/D25). The default is A. |
 | `f` / `r` | One revolution forward / reverse |
 | `t` | Back-and-forth test: 1 rev forward, 1 rev back, three times |
-| `s<number>` | Set step rate for `f`/`r`/`t` in steps/s, e.g. `s1000` (default 500) |
+| `s<number>` | Set step rate for `f`/`r`/`t` in steps/s, e.g. `s500` (default 500, max 800 = 120 RPM) |
 | `v`, `d`, `o`, `c`, `h`, `z` | [Displacement trial](#displacement-trials) commands, acting on the selected driver only |
 | `?` | Show the menu and the current driver, rates, distance and position |
 | any key during a move | Cancel the move |

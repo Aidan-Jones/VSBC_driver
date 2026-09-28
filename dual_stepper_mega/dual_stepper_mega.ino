@@ -46,6 +46,9 @@
 
 #include <util/atomic.h>
 
+// Printed at startup so serial_logger.py can name the log file after the sketch.
+const char SKETCH_NAME[] = "dual_stepper_mega";
+
 // Port A bit masks (Mega pins 22-25)
 const uint8_t STEP_A = _BV(PA0);   // D22
 const uint8_t STEP_B = _BV(PA1);   // D23
@@ -66,10 +69,18 @@ const float MM_PER_STEP   = SCREW_LEAD_MM / STEPS_PER_REV;   // 0.0125 mm
 const float DEFAULT_RATE_MM_S   = 0.5f;
 const float DEFAULT_DISTANCE_MM = 10.0f;
 
-// Limits. MAX_RATE_MM_S keeps the motors well inside their torque curve so
-// they do not stall (a stall breaks the constant-rate guarantee).
-const float MIN_RATE_MM_S   = 0.01f;    // 0.8 steps/s
-const float MAX_RATE_MM_S   = 20.0f;    // 1600 steps/s = 240 RPM
+// Motor speed limit. Trials start at full rate with no ramp, and a stall breaks
+// the constant-rate guarantee, so the motor must start and hold the rate from
+// standstill under load. 23HS30-3004S: 1.89 N*m holding, 4.8 mH, 440 g*cm^2
+// rotor. At the 2.37 A peak driver setting, torque starts to fall above about
+// V / (2 * L * I) full steps/s: ~320 RPM on a 24 V supply, ~630 RPM on 48 V.
+// 120 RPM stays well below that on any supply in the DM542T range and inside
+// a safe no-ramp start rate, so close to full low-speed torque is available.
+const float MAX_MOTOR_RPM = 120.0f;
+
+// Rate and distance limits.
+const float MIN_RATE_MM_S   = 0.01f;                                  // 0.8 steps/s
+const float MAX_RATE_MM_S   = MAX_MOTOR_RPM / 60.0f * SCREW_LEAD_MM;  // 10 mm/s = 800 steps/s
 const float MAX_DISTANCE_MM = 100.0f;   // TODO: set to the real beam travel
 
 // DIR level that makes the beam open. Flip if "open" moves the wrong way.
@@ -325,6 +336,16 @@ void runTrial(long steps, bool opening) {
   Serial.println();
 }
 
+void printRateTooHigh(float rate) {
+  Serial.print("ERROR: ");
+  Serial.print(rate, 4);
+  Serial.print(" mm/s exceeds the motor limit of ");
+  Serial.print(MAX_RATE_MM_S, 2);
+  Serial.print(" mm/s (");
+  Serial.print(MAX_MOTOR_RPM, 0);
+  Serial.println(" RPM). Rate unchanged.");
+}
+
 void printSettings() {
   Serial.print("Rate: ");
   Serial.print(rate_mm_s, 4);
@@ -342,7 +363,11 @@ void printSettings() {
 void printMenu() {
   Serial.println();
   Serial.println("=== Dual-driver displacement trials (Mega 2560) ===");
-  Serial.println("  v<mm/s>  set displacement rate (e.g. v0.5)");
+  Serial.print("Sketch: ");
+  Serial.println(SKETCH_NAME);
+  Serial.print("  v<mm/s>  set displacement rate (e.g. v0.5, max ");
+  Serial.print(MAX_RATE_MM_S, 1);
+  Serial.println(")");
   Serial.println("  d<mm>    set trial distance (e.g. d20)");
   Serial.println("  o / c    run trial: open / close by distance at rate");
   Serial.println("  h        return to zero position");
@@ -371,7 +396,13 @@ void loop() {
   switch (c) {
     case 'v': case 'V': {
       float rate = Serial.parseFloat();
-      if (rate >= MIN_RATE_MM_S && rate <= MAX_RATE_MM_S) {
+      if (rate > MAX_RATE_MM_S) {
+        printRateTooHigh(rate);
+      } else if (rate < MIN_RATE_MM_S) {
+        Serial.print("ERROR: rate must be at least ");
+        Serial.print(MIN_RATE_MM_S, 2);
+        Serial.println(" mm/s. Rate unchanged.");
+      } else {
         rate_mm_s = rate;
         setStepRate(rate_mm_s / MM_PER_STEP);
         Serial.print("Rate set to ");
@@ -379,12 +410,6 @@ void loop() {
         Serial.print(" mm/s (actual ");
         Serial.print(actual_rate_hz * MM_PER_STEP, 4);
         Serial.println(" mm/s)");
-      } else {
-        Serial.print("Invalid rate; must be between ");
-        Serial.print(MIN_RATE_MM_S, 2);
-        Serial.print(" and ");
-        Serial.print(MAX_RATE_MM_S, 2);
-        Serial.println(" mm/s");
       }
       break;
     }

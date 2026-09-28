@@ -19,7 +19,7 @@
     a / b      select driver A or B
     f / r      one revolution forward / reverse
     t          back-and-forth test (1 rev fwd, 1 rev back) x3
-    s<number>  set step rate for f/r/t in steps/s, e.g. s1000
+    s<number>  set step rate for f/r/t in steps/s, e.g. s500 (max 800)
     v<mm/s>    set trial displacement rate, e.g. v0.5
     d<mm>      set trial distance, e.g. d20
     o / c      run trial: open / close by the set distance at the set rate
@@ -30,6 +30,9 @@
 */
 
 #include <util/atomic.h>
+
+// Printed at startup so serial_logger.py can name the log file after the sketch.
+const char SKETCH_NAME[] = "single_driver_test";
 
 // Port A bit masks (Mega pins 22-25)
 const uint8_t STEP_A = _BV(PA0);   // D22
@@ -49,11 +52,16 @@ const float MM_PER_STEP   = SCREW_LEAD_MM / STEPS_PER_REV;   // 0.0125 mm
 // Default step rate for f/r/t, in steps/sec (500 at 400 pulses/rev = 75 RPM).
 const float DEFAULT_STEP_RATE_HZ = 500.0f;
 
+// Motor speed limit -- see dual_stepper_mega.ino for the derivation. Moves
+// start at full rate with no ramp, so this applies to both s and v.
+const float MAX_MOTOR_RPM = 120.0f;
+const float MAX_MOTOR_STEP_RATE_HZ = MAX_MOTOR_RPM / 60.0f * STEPS_PER_REV;  // 800 steps/s
+
 // Trial defaults and limits -- keep in step with dual_stepper_mega.ino.
 const float DEFAULT_RATE_MM_S   = 0.5f;
 const float DEFAULT_DISTANCE_MM = 10.0f;
-const float MIN_RATE_MM_S   = 0.01f;    // 0.8 steps/s
-const float MAX_RATE_MM_S   = 20.0f;    // 1600 steps/s = 240 RPM
+const float MIN_RATE_MM_S   = 0.01f;                                  // 0.8 steps/s
+const float MAX_RATE_MM_S   = MAX_MOTOR_RPM / 60.0f * SCREW_LEAD_MM;  // 10 mm/s = 800 steps/s
 const float MAX_DISTANCE_MM = 100.0f;   // TODO: set to the real beam travel
 
 // DIR level that makes the beam open. Flip if "open" moves the wrong way.
@@ -353,11 +361,17 @@ void selectDriver(char driver) {
 void printMenu() {
   Serial.println();
   Serial.println("=== Single-driver test (Mega 2560) ===");
+  Serial.print("Sketch: ");
+  Serial.println(SKETCH_NAME);
   Serial.println("  a / b      select driver A (D22/D24) or B (D23/D25)");
   Serial.println("  f / r      one revolution forward / reverse");
   Serial.println("  t          back-and-forth test x3");
-  Serial.println("  s<number>  set f/r/t step rate in steps/s (e.g. s1000)");
-  Serial.println("  v<mm/s>    set trial displacement rate (e.g. v0.5)");
+  Serial.print("  s<number>  set f/r/t step rate in steps/s (e.g. s500, max ");
+  Serial.print(MAX_MOTOR_STEP_RATE_HZ, 0);
+  Serial.println(")");
+  Serial.print("  v<mm/s>    set trial displacement rate (e.g. v0.5, max ");
+  Serial.print(MAX_RATE_MM_S, 1);
+  Serial.println(")");
   Serial.println("  d<mm>      set trial distance (e.g. d20)");
   Serial.println("  o / c      run trial: open / close by distance at rate");
   Serial.println("  h          return selected driver to zero position");
@@ -421,7 +435,15 @@ void loop() {
 
     case 's': case 'S': {
       float rate = Serial.parseFloat();
-      if (rate > 0.0f && setStepRate(rate)) {
+      if (rate > MAX_MOTOR_STEP_RATE_HZ) {
+        Serial.print("ERROR: ");
+        Serial.print(rate, 1);
+        Serial.print(" steps/s exceeds the motor limit of ");
+        Serial.print(MAX_MOTOR_STEP_RATE_HZ, 0);
+        Serial.print(" steps/s (");
+        Serial.print(MAX_MOTOR_RPM, 0);
+        Serial.println(" RPM). Rate unchanged.");
+      } else if (rate > 0.0f && setStepRate(rate)) {
         step_rate_hz = rate;
         Serial.print("Step rate set to ");
         Serial.print(step_rate_hz, 1);
@@ -429,9 +451,7 @@ void loop() {
         Serial.print(step_rate_hz * 60.0f / STEPS_PER_REV, 1);
         Serial.println(" RPM)");
       } else {
-        Serial.print("Invalid rate; must be between 0.12 and ");
-        Serial.print(MAX_STEP_RATE_HZ, 0);
-        Serial.println(" steps/s");
+        Serial.println("ERROR: step rate must be at least 0.12 steps/s. Rate unchanged.");
         setStepRate(step_rate_hz);
       }
       break;
@@ -439,7 +459,19 @@ void loop() {
 
     case 'v': case 'V': {
       float rate = Serial.parseFloat();
-      if (rate >= MIN_RATE_MM_S && rate <= MAX_RATE_MM_S) {
+      if (rate > MAX_RATE_MM_S) {
+        Serial.print("ERROR: ");
+        Serial.print(rate, 4);
+        Serial.print(" mm/s exceeds the motor limit of ");
+        Serial.print(MAX_RATE_MM_S, 2);
+        Serial.print(" mm/s (");
+        Serial.print(MAX_MOTOR_RPM, 0);
+        Serial.println(" RPM). Rate unchanged.");
+      } else if (rate < MIN_RATE_MM_S) {
+        Serial.print("ERROR: rate must be at least ");
+        Serial.print(MIN_RATE_MM_S, 2);
+        Serial.println(" mm/s. Rate unchanged.");
+      } else {
         rate_mm_s = rate;
         setStepRate(rate_mm_s / MM_PER_STEP);
         Serial.print("Trial rate set to ");
@@ -447,12 +479,6 @@ void loop() {
         Serial.print(" mm/s (actual ");
         Serial.print(actual_rate_hz * MM_PER_STEP, 4);
         Serial.println(" mm/s)");
-      } else {
-        Serial.print("Invalid rate; must be between ");
-        Serial.print(MIN_RATE_MM_S, 2);
-        Serial.print(" and ");
-        Serial.print(MAX_RATE_MM_S, 2);
-        Serial.println(" mm/s");
       }
       break;
     }
