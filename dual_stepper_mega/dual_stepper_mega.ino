@@ -12,13 +12,13 @@
     SW4 ON                    -> standstill current 90%
     SW5 OFF, SW6 ON, SW7 ON, SW8 ON -> 400 pulses/rev (matches STEPS_PER_REV)
 
-  Wiring (each line goes through its own NPN transistor buffer):
-    D22 (PA0) STEP_A -> NPN -> Driver A PUL-
-    D23 (PA1) STEP_B -> NPN -> Driver B PUL-
-    D24 (PA2) DIR_A  -> NPN -> Driver A DIR-
-    D25 (PA3) DIR_B  -> NPN -> Driver B DIR-
-    Both drivers' PUL+ and DIR+ -> +5V
+  Wiring (direct, common-cathode -- no transistors needed):
+    D22 (PA0) STEP_A -> Driver A PUL+      Driver A PUL- -> Mega GND
+    D23 (PA1) STEP_B -> Driver B PUL+      Driver B PUL- -> Mega GND
+    D24 (PA2) DIR_A  -> Driver A DIR+      Driver A DIR- -> Mega GND
+    D25 (PA3) DIR_B  -> Driver B DIR+      Driver B DIR- -> Mega GND
     ENA+/ENA- left unconnected (drivers enabled)
+  Each Mega pin sources the ~7-10 mA opto current directly (pin HIGH = signal on).
 
   All four signals are on the same AVR port (PORTA), so the ISR toggles
   both STEP lines with a single register write. Both drivers receive their

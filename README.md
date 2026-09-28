@@ -16,7 +16,6 @@ This repository contains firmware and scripts that drive two Stepperonline 23HS3
 | Stepper driver (x2, one per motor) | Stepperonline **Full Digital Stepper Driver DM542T, Version 4.0** | 1.0–4.5 A, 18–50 VDC, opto-isolated PUL/DIR/ENA; see [Stepper drivers](#stepper-drivers--stepperonline-dm542t-v40) |
 | Controller (primary) | Arduino Mega 2560 | ATmega2560 @ 16 MHz; uses the 16-bit Timer1 compare interrupt |
 | Controller (prototype) | Raspberry Pi 5 | Single motor, software-timed |
-| Signal buffers | NPN transistors (x4) | One per STEP and DIR line, per driver (Arduino setup) |
 | Motor power supply | _TODO: voltage / current rating_ | Must be within the DM542T's input range |
 
 ## Repository layout
@@ -142,27 +141,30 @@ Timing margins check out on both controllers. The Mega's pulses are high for 1 m
 
 ### Wiring
 
-Each driver has its own STEP and DIR pins. All four are on the Mega's **PORTA** (double-row header, pins 22–25):
+The drivers connect **directly** to the Mega; no transistors are needed. Each driver has its own STEP and DIR pins, and all four are on the Mega's **PORTA** (double-row header, pins 22–25):
 
-| Signal | Mega pin | AVR port bit | Goes to |
+| Driver terminal | Mega pin | Signal | AVR port bit |
 |---|---|---|---|
-| STEP A | D22 | PA0 | NPN buffer → Driver A PUL- |
-| STEP B | D23 | PA1 | NPN buffer → Driver B PUL- |
-| DIR A | D24 | PA2 | NPN buffer → Driver A DIR- |
-| DIR B | D25 | PA3 | NPN buffer → Driver B DIR- |
+| Driver A PUL+ | D22 | STEP A | PA0 |
+| Driver A PUL- | GND | — | — |
+| Driver A DIR+ | D24 | DIR A | PA2 |
+| Driver A DIR- | GND | — | — |
+| Driver B PUL+ | D23 | STEP B | PA1 |
+| Driver B PUL- | GND | — | — |
+| Driver B DIR+ | D25 | DIR B | PA3 |
+| Driver B DIR- | GND | — | — |
+| ENA+ / ENA- (both drivers) | not connected | — | — |
 
 ```
-  +5V ──► Driver A PUL+, DIR+
-  +5V ──► Driver B PUL+, DIR+
-
-  Mega D22 (STEP A) ──► NPN buffer ──► Driver A PUL-
-  Mega D23 (STEP B) ──► NPN buffer ──► Driver B PUL-
-  Mega D24 (DIR A)  ──► NPN buffer ──► Driver A DIR-
-  Mega D25 (DIR B)  ──► NPN buffer ──► Driver B DIR-
+  Mega D22 (STEP A) ──► Driver A PUL+      Driver A PUL- ──► Mega GND
+  Mega D24 (DIR A)  ──► Driver A DIR+      Driver A DIR- ──► Mega GND
+  Mega D23 (STEP B) ──► Driver B PUL+      Driver B PUL- ──► Mega GND
+  Mega D25 (DIR B)  ──► Driver B DIR+      Driver B DIR- ──► Mega GND
 ```
 
-- The NPN buffers sink the drivers' opto-coupler current (7–10 mA per input), so the Mega pin never has to source it directly.
-- Tie Mega GND to the NPN emitters (common signal ground).
+- This is **common-cathode** wiring: the Mega pin drives the + input, and the − input goes to Mega GND. Pin HIGH = signal on.
+- Each input draws about 7–10 mA, well within the Mega's 20 mA recommended per-pin current (40 mA absolute maximum).
+- The PUL- and DIR- wires from both drivers can share any Mega GND pin.
 - Set **S2 = 5V** on both drivers. ENA+/ENA- are left unconnected, which keeps the drivers enabled.
 - All four signals are on the same AVR port, so the dual sketch toggles both STEP lines with **one register write**. Both drivers see their edges on the same clock cycle. Separate lines per driver let the test sketch pulse one driver on its own.
 
@@ -208,6 +210,21 @@ Use `moveSteps(steps, clockwise, step_rate_hz)` to command a move. It blocks unt
 ## Single-driver test (Arduino Mega 2560)
 
 `single_driver_test/single_driver_test.ino` uses the same wiring and Timer1 step engine as the dual sketch, but pulses **only the selected driver**. The other driver's STEP and DIR stay LOW, so it never moves. Use it to bring up each driver/motor on its own before running both together.
+
+### Single-driver wiring
+
+Wire the driver under test as **Driver A**:
+
+| Driver terminal | Arduino Mega pin |
+|---|---|
+| PUL+ | D22 |
+| PUL- | GND |
+| DIR+ | D24 |
+| DIR- | GND |
+| ENA+ | Not connected |
+| ENA- | Not connected |
+
+The motor and the power supply connect only to the driver. Set S2 = 5V and SW1–SW8 = OFF OFF ON ON OFF ON ON ON.
 
 ### Upload and use
 
@@ -283,9 +300,9 @@ Pulses are timed with Python's `sleep()`, so Linux scheduling introduces jitter.
 - [ ] **Hardware: set SW5–8 to OFF ON ON ON (400 pulses/rev) on both drivers.** The old all-OFF setting is 25000 pulses/rev.
 - [ ] **Hardware: set S2 to 5V on both drivers.** It ships at 24V, and all the control signals here are 5 V.
 - [ ] **Current is below the motor rating.** SW1–3 at OFF OFF ON gives 2.37 A peak / 1.69 A RMS, while the motor is rated 3.0 A. Raise it if you need more torque.
-- [ ] **Pi logic-level issue.** With PUL+/DIR+ tied to 5V and PUL-/DIR- driven by 3.3V GPIO, the input sees about 1.7 V when the pin is "high". The V4.0 spec needs 0–0.5 V for low and 4.5–5 V for high, so 1.7 V is in neither range and the driver may miss or add pulses. The signals are also active-low. Use NPN buffers as in the Arduino design.
+- [ ] **Pi logic-level issue.** With PUL+/DIR+ tied to 5V and PUL-/DIR- driven by 3.3V GPIO, the input sees about 1.7 V when the pin is "high". The V4.0 spec needs 0–0.5 V for low and 4.5–5 V for high, so 1.7 V is in neither range and the driver may miss or add pulses. The signals are also active-low. Use a transistor buffer or a 3.3→5 V level shifter on each line.
 - [ ] **No acceleration/deceleration ramps.** Both controllers start and stop at full speed, which can cause stalls or missed steps at higher speeds or loads.
-- [ ] **Hardware: rewire for the Mega.** Each driver now has its own STEP/DIR lines on D22–D25, and each line needs its own NPN buffer (4 in total).
+- [ ] **Hardware: rewire for the Mega.** Each driver now has its own STEP/DIR lines on D22–D25, wired directly to PUL+/DIR+ with PUL-/DIR- to GND (no transistors).
 - [ ] **Arduino: blocking move.** `moveSteps()` blocks the main loop, so no other work (serial commands, sensors) can run during a move.
 - [ ] **No application logic yet.** The code only runs a back-and-forth test. Commanding positions for the variable stiffness mechanism still has to be written.
 - [ ] **Compile-check on hardware.** The Mega sketches have not been compiled or run on a board yet.

@@ -4,11 +4,13 @@
   the Serial Monitor, so each driver/motor can be checked on its own.
 
   Uses the same wiring, driver settings and Timer1 step engine as
-  dual_stepper_mega.ino:
-    D22 (PA0) STEP_A -> NPN -> Driver A PUL-
-    D23 (PA1) STEP_B -> NPN -> Driver B PUL-
-    D24 (PA2) DIR_A  -> NPN -> Driver A DIR-
-    D25 (PA3) DIR_B  -> NPN -> Driver B DIR-
+  dual_stepper_mega.ino (direct, common-cathode -- no transistors needed):
+    D22 (PA0) STEP_A -> Driver A PUL+      Driver A PUL- -> Mega GND
+    D23 (PA1) STEP_B -> Driver B PUL+      Driver B PUL- -> Mega GND
+    D24 (PA2) DIR_A  -> Driver A DIR+      Driver A DIR- -> Mega GND
+    D25 (PA3) DIR_B  -> Driver B DIR+      Driver B DIR- -> Mega GND
+    ENA+/ENA- left unconnected (drivers enabled)
+  With only one driver connected, wire it as driver A: D22, D24 and GND.
   The driver that is not selected gets no pulses; its STEP and DIR stay LOW.
 
   Serial Monitor: 115200 baud. Commands:

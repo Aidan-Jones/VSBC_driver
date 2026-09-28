@@ -18,8 +18,8 @@ Wiring (BCM numbering):
 
 WARNING: the Pi's 3.3V GPIO cannot fully switch the driver's 5V opto inputs
 (a GPIO "high" leaves ~1.7V across the input; DM542T V4.0 needs 0-0.5V for low
-and 4.5-5V for high). Put an NPN transistor buffer on each line, as in the
-Arduino setup, for reliable stepping.
+and 4.5-5V for high). Put an NPN transistor buffer on each line for reliable
+stepping.
 """
 
 from gpiozero import DigitalOutputDevice
