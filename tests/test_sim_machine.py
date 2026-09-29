@@ -7,7 +7,7 @@ import pytest
 
 from vsbc import PROTOCOL_VERSION
 from vsbc.link import DeviceError
-from vsbc.machine import Machine
+from vsbc.machine import FirmwareMismatch, Machine
 from vsbc.protocol import Reply, Sample
 from vsbc.sim import SimulatedMega, Specimen
 from tests.conftest import FAST_SPECIMEN
@@ -210,6 +210,40 @@ def test_single_motor_mode_clears_reference(machine):
     with pytest.raises(DeviceError) as e:
         machine.run(1.0)
     assert e.value.code == "NOREF"
+
+
+class _LegacySketch:
+    """Serial port that behaves like firmware/legacy/dual_stepper_mega: it prints its
+    menu after the reset and never answers protocol commands."""
+
+    timeout = 0.05
+
+    def __init__(self):
+        self._lines = [b"", b"=== Dual-driver displacement trials (Mega 2560) ===",
+                       b"Sketch: dual_stepper_mega", b"  v<mm/s>  set displacement rate (e.g. v0.5, max 10.0)"]
+
+    def write(self, data):
+        return len(data)
+
+    def readline(self):
+        if self._lines:
+            return self._lines.pop(0) + b"\r\n"
+        time.sleep(self.timeout)
+        return b""
+
+    def close(self):
+        pass
+
+
+def test_legacy_sketch_is_refused_with_its_banner(config, monkeypatch):
+    config.serial.ready_timeout_s = 0.3
+    monkeypatch.setattr("vsbc.machine.open_serial", lambda port, baud: _LegacySketch())
+    m = Machine(config)
+    with pytest.raises(FirmwareMismatch) as e:
+        m.connect("COM99")
+    assert "No answer from vsbc_firmware" in str(e.value)
+    assert "Sketch: dual_stepper_mega" in e.value.banner
+    assert not m.connected
 
 
 def test_settings_survive_save_in_eeprom_file(config, tmp_path):

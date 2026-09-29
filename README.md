@@ -40,6 +40,7 @@ Arduino Mega 2560 ── firmware/vsbc_firmware ──────────�
 - [Output files](#output-files)
 - [Command line](#command-line)
 - [Arduino IDE / Serial Monitor only](#arduino-ide--serial-monitor-only)
+- [Legacy sketches (motion only)](#legacy-sketches-motion-only)
 - [Configuration](#configuration)
 - [Safety and limitations](#safety-and-limitations)
 - [Hardware bring-up checklist](#hardware-bring-up-checklist)
@@ -54,6 +55,7 @@ Arduino Mega 2560 ── firmware/vsbc_firmware ──────────�
 | Path | What it is |
 |---|---|
 | [`firmware/vsbc_firmware/`](firmware/vsbc_firmware/) | Arduino Mega sketch. Open `vsbc_firmware.ino` in the Arduino IDE, or build it with `vsbc flash`. No extra libraries. |
+| [`firmware/legacy/`](firmware/legacy/) | The two old standalone sketches (motion only, no load cell), kept for reference. See [Legacy sketches](#legacy-sketches-motion-only). |
 | [`vsbc/`](vsbc/) | Python package that runs on the Pi (and on a PC) |
 | [`vsbc/gui/`](vsbc/gui/) | PyQt5 + pyqtgraph touchscreen GUI |
 | [`vsbc/sim.py`](vsbc/sim.py) | Simulated Mega, so the app and tests run without hardware |
@@ -64,7 +66,7 @@ Arduino Mega 2560 ── firmware/vsbc_firmware ──────────�
 | [`config.example.toml`](config.example.toml) | Optional settings for the app; copy to `config.toml` |
 | `Outputs/` | Test data, calibration records and logs (not in git) |
 
-The earlier code (`dual_stepper_mega`, `single_driver_test`, `serial_logger.py`, the Pi GPIO prototype `Controller1.0.py`) was replaced by this design. It is still in the git history, e.g. commit `cccd861`.
+The two earlier standalone sketches (`dual_stepper_mega`, `single_driver_test`) are kept in [`firmware/legacy/`](firmware/legacy/). The PC logger `serial_logger.py` and the Pi GPIO prototype `Controller1.0.py` were replaced by this design; they are in the git history (commit `cccd861`).
 
 ---
 
@@ -300,6 +302,33 @@ Data lines look like `D 123456 12.3450 87.512 1419842 R`: Mega time in ms, posit
 
 ---
 
+## Legacy sketches (motion only)
+
+The two standalone sketches from before the redesign are kept in [`firmware/legacy/`](firmware/legacy/) for reference. They use the same wiring (D22–D25) and still upload and run from the Arduino IDE (Serial Monitor, 115200 baud).
+
+| Sketch | What it does | Commands |
+|---|---|---|
+| [`dual_stepper_mega`](firmware/legacy/dual_stepper_mega/dual_stepper_mega.ino) | Both motors in lockstep: constant-rate displacement trials | `v<mm/s>` rate, `d<mm>` distance, `o` / `c` open / close by that distance, `h` back to zero, `z` set zero, `?` menu. Any key cancels a move. |
+| [`single_driver_test`](firmware/legacy/single_driver_test/single_driver_test.ino) | One driver at a time, for bring-up | `a` / `b` select the driver, `f` / `r` one revolution forward / reverse, `t` back-and-forth test ×3, `s<steps/s>` revolution rate, plus the same trial commands |
+
+Limitations:
+- **Motion only**: no load cell, no load or travel-limit stops, no calibration in EEPROM.
+- **Not kept in sync** with `vsbc_firmware`: their rate limit and direction settings are constants in each sketch.
+- **The Pi app can't use them.** Connecting reports "No answer from vsbc_firmware", shows what the board printed (e.g. `Sketch: dual_stepper_mega`), and points to the Firmware tab. Upload `firmware/vsbc_firmware` again before using the app.
+
+The same jobs in `vsbc_firmware`:
+
+| Legacy | `vsbc_firmware` |
+|---|---|
+| `v0.5` then `d20` then `o` / `c` | `v0.5` then `m20` / `m-20` |
+| `h`, `z`, `?` | `h`, `z`, `?` (the same) |
+| `a` / `b` (select a driver) | `MOTORS A` / `MOTORS B` (`MOTORS AB` for both again) |
+| `f` / `r` (one revolution) | `m5` / `m-5` (one revolution = 5 mm) |
+| `s500` (steps/s) | `v6.25` (mm/s = steps/s ÷ 80) |
+| `t` (back and forth ×3) | no single command: repeat `m5` / `m-5` |
+
+---
+
 ## Configuration
 
 **App settings** (`config.toml`, optional): copy [`config.example.toml`](config.example.toml) to `config.toml` in the repository folder, or to `~/.config/vsbc/config.toml`. It sets:
@@ -358,7 +387,7 @@ Change them, then upload again.
 
 ```bash
 pip install -e ".[gui,dev]"
-pytest                          # 56 tests against the simulator (incl. an offscreen GUI run), ~15 s
+pytest                          # 57 tests against the simulator (incl. an offscreen GUI run), ~17 s
 vsbc gui --sim                  # try GUI changes without hardware
 vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 ```
