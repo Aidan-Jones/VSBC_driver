@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vsbc"
+version = "2.0.0"
+description = "Tensile tester host software: Raspberry Pi app driving an Arduino Mega (steppers + HX711 load cell)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyserial>=3.5",
+    "numpy>=1.23",
+    "matplotlib>=3.6",
+]
+
+[project.optional-dependencies]
+# On the Pi, install these with apt instead (python3-pyqt5 python3-pyqtgraph).
+gui = ["pyqtgraph>=0.13", "PyQt5>=5.15"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+vsbc = "vsbc.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vsbc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
