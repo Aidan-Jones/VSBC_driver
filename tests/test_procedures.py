@@ -3,6 +3,7 @@ import json
 import threading
 import time
 
+import numpy as np
 import pytest
 
 from vsbc.analysis import load_csv
@@ -40,7 +41,9 @@ def test_pull_test_to_break_writes_all_files(machine, config):
 
     cols = load_csv(folder / "data.csv")
     assert list(cols) == CSV_COLUMNS
-    assert cols["extension_mm"][0] == pytest.approx(0, abs=0.02)
+    # The first sample comes up to about one sample period (12.5 ms = 0.06 mm at 5 mm/s) after the start.
+    assert 0 <= cols["extension_mm"][0] < 0.15
+    assert (np.diff(cols["extension_mm"]) >= 0).all()
     assert len(samples) == len(cols["time_s"]) > 10
 
     meta = json.loads((folder / "meta.json").read_text())

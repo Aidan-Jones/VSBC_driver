@@ -1,0 +1,37 @@
+# VSBC tensile tester: app settings.
+# Copy this file to config.toml (in this folder) or to ~/.config/vsbc/config.toml.
+# Everything is optional; the values below are the defaults.
+# Machine calibration (steps/mm, load scale, travel limits, overload cutoff) is
+# stored on the Mega, not here: change it from the Calibrate tab.
+
+# Folder for test data, calibration records and logs (relative to this file).
+output_dir = "Outputs"
+
+# The Mega stops a move if the app has sent nothing for this long (ms).
+watchdog_ms = 3000
+
+[serial]
+# port = "/dev/ttyACM0"      # or "COM5"; leave it out to auto-detect the Mega
+baud = 115200
+ready_timeout_s = 4.0        # the Mega resets when the port opens
+log_data_lines = false       # also write every data line to the serial session log
+
+[loadcell]
+capacity_n = 500.0           # rated capacity of the load cell, N (sets the default overload cutoff)
+gravity = 9.80665            # m/s^2, converts calibration masses to newtons
+
+[test]                        # defaults for new tests
+rate_mm_min = 5.0
+max_extension_mm = 50.0
+stop_load_n = 0.0            # 0 = off
+break_drop_pct = 40.0        # 0 = no break detection
+break_min_n = 5.0
+tare_before = true
+return_after = false
+jog_rate_mm_s = 2.0
+
+[gui]
+fullscreen = false
+refresh_hz = 25
+time_window_s = 60
+font_pt = 11

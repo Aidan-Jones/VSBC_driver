@@ -176,7 +176,7 @@ class SerialLink:
             self.last_tx = time.monotonic()
         self._log.write(text, sent=True)
         for fn in list(self._raw_listeners):
-            fn(text, True)
+            self._safe_call(fn, text, True)
 
     def command(self, name: str, *args, timeout: float = 2.0) -> Reply:
         """Send a command and wait for its OK/ERR. Raises DeviceError on ERR."""

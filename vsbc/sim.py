@@ -316,11 +316,12 @@ class SimulatedMega:
         while not self._closed.is_set():
             next_t += period
             delay = next_t - time.monotonic()
-            if delay > 0:
-                if self._closed.wait(delay):
-                    break
-            else:
-                next_t = time.monotonic()
+            if delay <= 0:
+                # Fell behind: skip ahead rather than bunching samples (a real HX711 never does that).
+                next_t = time.monotonic() + period
+                delay = period
+            if self._closed.wait(delay):
+                break
             with self._lock:
                 now = self._now()
                 if not self.booted:
@@ -374,20 +375,21 @@ class SimulatedMega:
             return
         if math.isnan(self.filt_load):
             return
+        running = self.move["mode"] == "RUN"
+        v = self.run_dir * self.filt_load
+        if running and (math.isnan(self.peak) or v > self.peak):
+            self.peak = v
         mag = abs(self.filt_load)
         max_load = self.settings["max_load"]
         if max_load > 0 and mag >= max_load and mag > self.start_mag + 0.01 * max_load:
             self._stop("OVERLOAD", now)
             return
-        if self.move["mode"] != "RUN":
+        if not running:
             return
         stop_load = self.params["stop_load"]
         if stop_load > 0 and mag >= stop_load:
             self._stop("LOAD", now)
             return
-        v = self.run_dir * self.filt_load
-        if math.isnan(self.peak) or v > self.peak:
-            self.peak = v
         drop, minimum = self.params["break_drop"], self.params["break_min"]
         if drop > 0 and minimum > 0 and self.peak >= minimum and v < self.peak * (1 - drop / 100):
             self.break_count += 1
@@ -691,7 +693,9 @@ class SimulatedMega:
         if error == "RATE":
             self._rate_range_error(name)
             return
-        self.start_mag = 0.0 if math.isnan(self.filt_load) else abs(self.filt_load)
+        # Largest |load| in the filter window (the median lags one sample).
+        loads = [abs(self._to_newtons(r)) for r in self.hist]
+        self.start_mag = max((x for x in loads if not math.isnan(x)), default=0.0)
         self.sat_at_start = self.lc_alive and self._saturated(self.last_raw)
         self.peak = NAN
         self.run_dir = self.move["dir"]

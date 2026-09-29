@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=VSBC Tensile Tester
+Comment=Run tests, calibrate and watch load and displacement live
+Exec=@VSBC@ gui
+Path=@REPO@
+Icon=utilities-system-monitor
+Terminal=false
+Categories=Science;Engineering;

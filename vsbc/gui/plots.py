@@ -36,7 +36,7 @@ class LivePlots(QtWidgets.QTabWidget):
         self.pos_plot.setXLink(self.load_plot)
         self.load_curve = self.load_plot.plot(pen=pg.mkPen("#c0392b", width=2))
         self.pos_curve = self.pos_plot.plot(pen=pg.mkPen("#1e8449", width=2))
-        self.addTab(self.time_widget, "Load & position – time")
+        self.addTab(self.time_widget, "Load && position – time")   # && = a literal & in a tab label
 
         n = int(window_s * 100)
         self._t = deque(maxlen=n)

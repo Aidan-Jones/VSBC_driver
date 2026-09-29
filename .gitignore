@@ -76,3 +76,9 @@ Testing/
 # Python
 __pycache__/
 *.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Local app settings (config.example.toml is the template)
+config.toml

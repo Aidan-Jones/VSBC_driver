@@ -142,6 +142,11 @@ void checkSafety(long raw) {
   }
   if (isnan(filt_load)) return;   // not calibrated: nothing to compare against
 
+  // RUN: track the peak first, so a stop below includes the sample that caused it.
+  bool running = motion::mode() == motion::MODE_RUN;
+  float v = run_dir * filt_load;   // load in the run direction (tension for RUN +)
+  if (running && (isnan(peak) || v > peak)) peak = v;
+
   float mag = fabs(filt_load);
   // Overload: only while |load| is rising past where the move started, so a
   // move that backs out of an overload is still allowed.
@@ -150,15 +155,13 @@ void checkSafety(long raw) {
     motion::stop(motion::END_OVERLOAD);
     return;
   }
-  if (motion::mode() != motion::MODE_RUN) return;
+  if (!running) return;
 
   if (params.stop_load > 0.0f && mag >= params.stop_load) {
     motion::stop(motion::END_LOAD);
     return;
   }
 
-  float v = run_dir * filt_load;   // load in the run direction (tension for RUN +)
-  if (isnan(peak) || v > peak) peak = v;
   if (params.break_drop > 0.0f && params.break_min > 0.0f && peak >= params.break_min &&
       v < peak * (1.0f - params.break_drop / 100.0f)) {
     if (++break_count >= 2) motion::stop(motion::END_BREAK);
@@ -296,7 +299,13 @@ void hostActivity() {
 }
 
 void beginMove() {
-  start_mag = isnan(filt_load) ? 0.0f : fabs(filt_load);
+  // Largest |load| in the filter window: the median filter lags one sample, so
+  // a move that starts right after an overload stop must not look like a rise.
+  start_mag = 0.0f;
+  for (uint8_t i = 3 - hist_n; i < 3; i++) {
+    float l = toNewtons(hist[i]);
+    if (!isnan(l) && fabs(l) > start_mag) start_mag = fabs(l);
+  }
   sat_at_start = lc_alive && loadcell::saturated(last_raw);
   peak = NAN;
   run_dir = motion::direction();

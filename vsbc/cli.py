@@ -57,6 +57,9 @@ def ask_float(question: str, default: float | None = None) -> float:
 def _connect(args, cfg: Config, **kwargs) -> Machine:
     m = Machine(cfg)
     m.connect(getattr(args, "port", None), sim=getattr(args, "sim", False), **kwargs)
+    if m.sim is not None and not m.status().referenced:
+        m.zero()   # the simulator starts unreferenced, like a freshly reset Mega; its zero is as good as any
+        m.warnings = [w for w in m.warnings if "referenced" not in w]
     for warning in m.warnings:
         print(f"Warning: {warning}")
     return m
@@ -94,10 +97,10 @@ def cmd_terminal(args, cfg: Config) -> int:
           'Ctrl+C or "quit" to exit.')
     try:
         while True:
-            line = input()
-            if line.strip().lower() in ("quit", "exit"):
+            line = input().lstrip("﻿").strip()   # a byte-order mark can arrive with piped input
+            if line.lower() in ("quit", "exit"):
                 break
-            if line.strip():
+            if line:
                 m.send_raw(line)
     except (KeyboardInterrupt, EOFError):
         pass
@@ -123,8 +126,6 @@ def cmd_test(args, cfg: Config) -> int:
 
     m = _connect(args, cfg)
     try:
-        if args.sim and not m.status().referenced:
-            m.zero()   # the simulator starts unreferenced, like a freshly reset Mega
         last = [0.0]
 
         def on_sample(sample, ext):
