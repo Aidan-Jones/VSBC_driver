@@ -1,4 +1,4 @@
-# Serial protocol v1
+# Serial protocol v2
 
 This is the contract between the Mega firmware (`firmware/vsbc_firmware`) and the
 Python host (`vsbc/`). The simulator in `vsbc/sim.py` implements the same
@@ -21,7 +21,7 @@ protocol, so any change here must be made in all three places.
 | `D <t_ms> <pos_mm> <load_N> <raw> <state>` | One data sample |
 | `# <text>` | Human-readable text (menu, hints). Hosts ignore it. |
 
-Every command gets **exactly one** `OK` or `ERR` line, with the canonical command
+Every command except `LC` gets **exactly one** `OK` or `ERR` line, with the canonical command
 name (never the alias). Most replies are immediate; `TARE` and `CAL` reply when
 their averaging is finished. `EVT` and `D` lines can appear between a command
 and its reply.
@@ -40,10 +40,10 @@ D 123456 12.3450 87.512 1419842 R
 | `t_ms` | Mega `millis()` when the sample was read (use this, not the PC clock) |
 | `pos_mm` | Crosshead position in mm, 4 decimals (+ = tension) |
 | `load_N` | Load in N, 3 decimals; `nan` when the load cell is missing or not calibrated; `inf`/`-inf` if out of printable range |
-| `raw` | Load-cell ADC counts (0 when no load cell) |
+| `raw` | Load-cell ADC counts (0 when no load cell). With `lc_host` = 1 this is the value the host sent. |
 | `state` | `I` idle, `M` manual move (`MOVE`/`GOTO`/`HOME`), `R` test run (`RUN`) |
 
-- `STREAM ON`: one line per load-cell sample (10 or 80 per second, depending on
+- `STREAM ON`: one line per load-cell sample, whichever source it comes from (10 or 80 per second, depending on
   the HX711 RATE pin), idle or moving. Without a load cell: one line every 100 ms.
 - `STREAM OFF` (the default at power-up): one line every 500 ms, only while moving.
 - If the serial transmit buffer is full the line is skipped, never delayed.
@@ -61,12 +61,13 @@ Any other line, including an unknown one, **stops the move** and gets
 | Command | Alias | Any time | Reply |
 |---|---|---|---|
 | `HELP` | `?` | yes | `#` menu lines, then `OK HELP` |
-| `ID` | | yes | `OK ID name=vsbc_firmware ver=2.0.0 proto=1 loadcell=HX711` |
+| `ID` | | yes | `OK ID name=vsbc_firmware ver=2.1.0 proto=2 loadcell=HX711` (`loadcell=HOST` when `lc_host` = 1) |
 | `STATUS` | `S` | yes | `OK STATUS state= pos= load= raw= rate= motors= ref= lc= cal= sps= stream= drops= t=` |
 | `GET` | | yes | `OK GET` followed by every setting as `key=value` |
 | `PING` | | yes | `OK PING` (resets the host watchdog, like any line) |
 | `STREAM ON\|OFF` | | yes | `OK STREAM on=1` |
 | `STOP` | `X` | yes | `OK STOP`; a running move then ends with `EVT MOVE_END reason=STOP` |
+| `LC <raw>` | | yes | **no reply**: one load-cell reading from the host (see below) |
 | `RATE <mm/s>` | `V` | | `OK RATE rate= actual= max=` |
 | `MOVE <±mm>` | `M` | | `OK MOVE from= target= steps= rate= expected=` |
 | `GOTO <mm>` | `G` | | as `MOVE` |
@@ -82,6 +83,15 @@ Any other line, including an unknown one, **stops the move** and gets
 
 ### Details
 
+- **LC <raw>** hands the Mega one load-cell reading: signed 24-bit ADC counts
+  read by the host (the HX711 on the Pi's GPIO pins). It is used only when
+  the setting `lc_host` is 1, and silently ignored otherwise. The Mega treats
+  it exactly like a sample from its own HX711: it updates the load, runs the
+  safety checks, feeds `TARE`/`CAL` and, with `STREAM ON`, sends a `D` line.
+  It is the only command without a reply, because it arrives up to 80 times
+  a second; a malformed `LC` line is dropped. If no `LC` arrives for 0.5 s
+  the load cell counts as lost (`EVT LOADCELL state=LOST`, and a `RUN` ends
+  with `reason=LOADCELL`).
 - **RATE** sets the crosshead rate for every following move. Range
   0.002 mm/s up to the motor limit (`max=`, 10 mm/s at 80 steps/mm).
   `actual=` is the rate the timer really produces after rounding.
@@ -171,6 +181,7 @@ peak load during a `RUN` in the run direction (`nan` for `MOVE`).
 | `break_drop` | 0 | %. Break detection threshold. 0 = off |
 | `break_min` | 0 | N. Peak needed before break detection arms. 0 = off |
 | `watchdog_ms` | 0 | Stop a move if no line arrives for this long. 0 = off. The Python host sets 3000 and pings every 0.5 s. |
+| `lc_host` | 0 | Load-cell source. 0 = the HX711 wired to the Mega. 1 = readings sent by the host with `LC <raw>`. Changing it forgets the current samples (`EVT LOADCELL state=LOST` if the load cell was alive). The Python host sets 1 when it reads the HX711 on the Pi (the default). |
 
 Safety checks use a median of the last three samples, so one bad sample cannot
 trigger a stop.
@@ -178,16 +189,21 @@ trigger a stop.
 ## Example session
 
 ```
-EVT READY name=vsbc_firmware ver=2.0.0 proto=1
+EVT READY name=vsbc_firmware ver=2.1.0 proto=2
+> SET lc_host 1
+OK SET lc_host=1
+> LC 84310
 > STREAM ON
 OK STREAM on=1
-D 2051 0.0000 nan 84310 I
+> LC 84312
+D 2051 0.0000 nan 84312 I
 > ZERO
 OK ZERO pos=0.0000
 > RATE 0.0833
 OK RATE rate=0.0833 actual=0.0833 max=10.0000
 > RUN 20
 OK RUN from=0.0000 target=20.0000 steps=1600 rate=0.0833 expected=240.10
+> LC 84360
 D 2163 0.0000 0.012 84360 R
 ...
 EVT MOVE_END reason=BREAK mode=RUN pos=3.9875 moved=3.9875 time=47.86 peak=401.220

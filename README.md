@@ -4,12 +4,12 @@ Control software for the tensile tester built for the **Variable Stiffness** cap
 
 _TODO: one-paragraph description of the variable stiffness mechanism and what the tester measures._
 
-Two Stepperonline 23HS30-3004S stepper motors, each on a DM542T V4.0 driver, turn two 5 mm-lead ball screws that move the crosshead. A load cell on an HX711 amplifier measures the force. The system has two computers:
+Two Stepperonline 23HS30-3004S stepper motors, each on a DM542T V4.0 driver, turn two 5 mm-lead ball screws that move the crosshead. A load cell on a SparkFun HX711 amplifier measures the force. The system has two computers:
 
-- an **Arduino Mega 2560**, which does everything that needs exact timing: it steps both motors in lockstep from a hardware timer, reads the load cell, and stops the motors by itself on overload, specimen break or travel limits;
-- a **Raspberry Pi 5**, which runs the Python app `vsbc`. The app shows load and displacement live, runs tests, calibrates the load cell and the motors, and saves data and logs.
+- an **Arduino Mega 2560**, which does everything that needs exact timing: it steps both motors in lockstep from a hardware timer, and stops the motors by itself on overload, specimen break or travel limits;
+- a **Raspberry Pi 5**, which runs the Python app `vsbc`. The app reads the load-cell amplifier on the Pi's GPIO pins and passes every reading to the Mega. It shows load and displacement live, runs tests, calibrates the load cell and the motors, and saves data and logs.
 
-The Mega firmware also works on its own from the Arduino IDE Serial Monitor, without the Pi.
+The amplifier can be wired to the Mega instead (`source = "mega"` in `config.toml`). The Mega firmware then also works on its own from the Arduino IDE Serial Monitor, without the Pi.
 
 ```
 Raspberry Pi 5 ── Python app "vsbc" ─────────────────────────────────────────
@@ -18,13 +18,14 @@ Raspberry Pi 5 ── Python app "vsbc" ─────────────�
   pull-to-failure test    calibration: load cell, travel, direction, limits
        │
   Machine API ── serial link ── (or the built-in simulator, for a PC without hardware)
-       │
+       │              ▲
+       │              └── HX711 reader (GPIO5 / GPIO6): every reading goes to the Mega
   data files, plots, logs  →  Outputs/
 ─────────────────── USB serial, 115200 baud, line protocol ───────────────────
 Arduino Mega 2560 ── firmware/vsbc_firmware ─────────────────────────────────
-  Timer1 step engine (both motors in lockstep)      HX711 load-cell reader
+  Timer1 step engine (both motors in lockstep)      load readings from the Pi (or its own HX711)
   settings in EEPROM (calibration, limits)          telemetry: one data line per load sample
-  safety stops: overload, specimen break, travel limits, silent host (watchdog)
+  safety stops: overload, specimen break, load cell lost, travel limits, silent host (watchdog)
 ```
 
 ---
@@ -58,6 +59,7 @@ Arduino Mega 2560 ── firmware/vsbc_firmware ──────────�
 | [`firmware/legacy/`](firmware/legacy/) | The two old standalone sketches (motion only, no load cell), kept for reference. See [Legacy sketches](#legacy-sketches-motion-only). |
 | [`vsbc/`](vsbc/) | Python package that runs on the Pi (and on a PC) |
 | [`vsbc/gui/`](vsbc/gui/) | PyQt5 + pyqtgraph touchscreen GUI |
+| [`vsbc/loadcell_pi.py`](vsbc/loadcell_pi.py) | Reads the HX711 on the Pi's GPIO pins |
 | [`vsbc/sim.py`](vsbc/sim.py) | Simulated Mega, so the app and tests run without hardware |
 | [`tests/`](tests/) | pytest suite (runs against the simulator) |
 | [`docs/protocol.md`](docs/protocol.md) | The serial protocol: every command, reply, event and data line |
@@ -77,9 +79,9 @@ The two earlier standalone sketches (`dual_stepper_mega`, `single_driver_test`) 
 | Stepper motor (×2) | Stepperonline 23HS30-3004S | NEMA 23, 1.8°/step, 3.0 A/phase |
 | Ball screw (×2) | 5 mm lead, direct coupled | 0.0125 mm per step at 400 pulses/rev |
 | Stepper driver (×2) | Stepperonline DM542T **V4.0** | S2 = **5V**, DIP = OFF OFF ON ON **OFF ON ON ON** on both. See [docs/hardware.md](docs/hardware.md). |
-| Controller | Arduino Mega 2560 | Real-time stepping, load cell, safety stops |
-| Host | Raspberry Pi 5 (Raspberry Pi OS Bookworm, 64-bit, desktop) | Runs `vsbc`; connects to the Mega over USB |
-| Load cell amplifier | HX711 | Any 24-bit HX711 board. Another ADC can be added later (see `firmware/vsbc_firmware/loadcell.h`). |
+| Controller | Arduino Mega 2560 | Real-time stepping, safety stops |
+| Host | Raspberry Pi 5 (Raspberry Pi OS Bookworm or newer, 64-bit, desktop) | Runs `vsbc`; connects to the Mega over USB; reads the load-cell amplifier |
+| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | Wired to the Pi's GPIO pins (default) or to the Mega |
 | Load cell | _TODO: model and capacity_ | Set `capacity_n` in `config.toml` |
 | Motor power supply | _TODO: voltage / current rating_ | 18–50 VDC for the DM542T |
 
@@ -97,20 +99,42 @@ Motors (same as before; details and diagrams in [docs/hardware.md](docs/hardware
 
 ENA+/ENA− stay unconnected (drivers enabled).
 
-Load cell:
+Load cell, **wired to the Raspberry Pi (default)**:
+
+| SparkFun HX711 pin | Connects to |
+|---|---|
+| VDD | Pi **3.3V** (header pin 17) |
+| VCC | Pi **5V** (header pin 2) |
+| GND | Pi GND (header pin 30) |
+| DAT | Pi **GPIO5** (header pin 29) |
+| CLK | Pi **GPIO6** (header pin 31) |
+| E+ / E− (RED / BLK) | Load cell excitation + / − (usually red / black) |
+| A+ / A− (GRN / WHT) | Load cell signal + / − (usually green / white) |
+
+- **VDD must go to 3.3V, not 5V.** VDD sets the voltage on DAT, and the Pi's GPIO pins are damaged by 5 V.
+- The pins are set under `[loadcell]` in `config.toml` (`dout_pin`, `sck_pin`, as GPIO numbers).
+- `vsbc loadcell` reads the amplifier for 5 s and prints the raw counts, the sample rate and the share of readings it discarded. Run it before anything else; it does not need the Mega.
+- The Pi only reads the amplifier. It sends every reading to the Mega, which still does the tare, the calibration and the safety stops. [docs/hardware.md](docs/hardware.md) explains the timing check that discards a reading.
+
+Load cell, **wired to the Mega (optional)**:
 
 | HX711 pin | Connects to |
 |---|---|
-| VCC | Mega 5V |
+| VCC and VDD | Mega 5V |
 | GND | Mega GND |
-| DT (DOUT) | Mega **D26** |
-| SCK | Mega **D27** |
-| E+ / E− | Load cell excitation + / − (usually red / black) |
-| A+ / A− | Load cell signal + / − (usually green / white) |
+| DAT (DOUT) | Mega **D26** |
+| CLK (SCK) | Mega **D27** |
+| E+ / E−, A+ / A− | Load cell, as above |
 
+- Select it with `source = "mega"` under `[loadcell]` in `config.toml`, or for one run with `--loadcell mega` (for example `vsbc gui --loadcell mega`).
 - The pins are set in [`config.h`](firmware/vsbc_firmware/config.h) (`HX711_DOUT_PIN`, `HX711_SCK_PIN`).
-- Most HX711 boards sample at **10 per second**. Tying the RATE pin to VCC (a jumper on some boards) gives **80 per second**, which makes break detection react 8× faster. The firmware measures the rate and reports it.
+- This is the wiring to use without the Pi (Arduino IDE Serial Monitor only), and on a PC: there the app cannot reach GPIO pins, says so in a warning and uses the Mega's HX711.
+
+Both wirings:
+
+- The HX711 samples at **10 per second** as shipped. Cutting the RATE jumper on the back of the SparkFun board gives **80 per second**, which makes break detection react 8× faster. The firmware measures the rate and reports it.
 - If a force in the tension direction reads negative, that is fine: calibration takes care of the sign.
+- The calibration is stored on the Mega for both. Calibrate again after moving the amplifier from one to the other.
 
 The Pi connects to the Mega with a USB cable. Opening the port resets the Mega, so the position has to be set again after the app connects (see [Position reference](#position-reference)).
 
@@ -120,16 +144,31 @@ The Pi connects to the Mega with a USB cable. Opening the port resets the Mega, 
 
 ### Raspberry Pi (the self-contained system)
 
+Starting from a Pi with only Raspberry Pi OS installed and an internet connection, in a terminal:
+
 ```bash
+sudo apt update && sudo apt install -y git
 git clone https://github.com/Aidan-Jones/VSBC_driver.git
 cd VSBC_driver
 bash scripts/install_pi.sh     # apt packages, Python environment, arduino-cli, desktop launcher
-# log out and back in once (serial-port permission)
+# log out and back in once (serial-port and GPIO permissions)
 vsbc flash                     # compile + upload the firmware to the Mega
+vsbc loadcell                  # check the HX711 wired to the Pi
 vsbc                           # start the GUI (also in the desktop menu as "VSBC Tensile Tester")
 ```
 
-`vsbc gui --fullscreen` fills the screen for a kiosk-style touchscreen. The install script asks whether to start it automatically at login.
+Everything the Pi needs is in the repository or installed by the script; nothing has to be copied over by hand. `vsbc gui --fullscreen` fills the screen for a kiosk-style touchscreen. The install script asks whether to start it automatically at login.
+
+To update a Pi that is already set up:
+
+```bash
+cd VSBC_driver
+git pull
+bash scripts/install_pi.sh     # safe to run again; picks up new dependencies
+vsbc flash                     # only needed when the firmware changed (the app says so when it connects)
+```
+
+Your `config.toml`, the Python environment and `Outputs/` are not in git, so `git pull` leaves them alone.
 
 ### A Windows / macOS / Linux PC, with or without hardware
 
@@ -157,7 +196,7 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ [port ▼] [⟳] [Disconnect]   /dev/ttyACM0 · vsbc_firmware 2.0.0     [STOP] │
+│ [port ▼] [⟳] [Disconnect]   /dev/ttyACM0 · vsbc_firmware 2.1.0     [STOP] │
 │  LOAD          POSITION          EXTENSION          STATE                 │
 │  123.45 N      12.3450 mm        2.3450 mm          TEST                  │
 ├──────────────────────────────────────────┬────────────────────────────────┤
@@ -261,7 +300,7 @@ The results include peak load and the extension at peak, break load and extensio
 
 ## Command line
 
-Every command that talks to the machine accepts `--port` (default: auto-detect) and `--sim` (use the simulator).
+Every command that talks to the machine accepts `--port` (default: auto-detect), `--sim` (use the simulator) and `--loadcell pi|mega` (where the HX711 is wired; default from `config.toml`, normally `pi`).
 
 | Command | What it does |
 |---|---|
@@ -272,6 +311,7 @@ Every command that talks to the machine accepts `--port` (default: auto-detect) 
 | `vsbc analyze <test folder>` | Recalculate a test's summary and plot |
 | `vsbc flash [--port ...] [--compile-only]` | Compile and upload the firmware with arduino-cli |
 | `vsbc ports` | List serial ports |
+| `vsbc loadcell [--seconds 5]` | Check the HX711 wired to the Pi: raw counts, sample rate, discarded readings. Does not use the Mega. |
 
 `vsbc --help` and `vsbc <command> --help` list all options. `python -m vsbc ...` works too.
 
@@ -279,7 +319,7 @@ Every command that talks to the machine accepts `--port` (default: auto-detect) 
 
 ## Arduino IDE / Serial Monitor only
 
-The firmware accepts typed commands, so the machine can be used without the Pi. Open the Serial Monitor at **115200 baud**; any line ending works. Commands are case-insensitive, and one-letter aliases can be followed directly by a number (`v0.5`, `m-5`).
+The firmware accepts typed commands, so the machine can be used without the Pi. For load readings in this mode the HX711 must be wired to the Mega (D26 / D27); with it wired to the Pi, only motion works. Open the Serial Monitor at **115200 baud**; any line ending works. Commands are case-insensitive, and one-letter aliases can be followed directly by a number (`v0.5`, `m-5`).
 
 | Command | Alias | Action |
 |---|---|---|
@@ -334,6 +374,7 @@ The same jobs in `vsbc_firmware`:
 **App settings** (`config.toml`, optional): copy [`config.example.toml`](config.example.toml) to `config.toml` in the repository folder, or to `~/.config/vsbc/config.toml`. It sets:
 - the serial port and baud rate;
 - the output folder;
+- where the load-cell amplifier is wired (`source = "pi"` or `"mega"`) and the Pi GPIO pins;
 - the load-cell capacity and local gravity;
 - default test settings;
 - the watchdog timeout;
@@ -345,7 +386,7 @@ The same jobs in `vsbc_firmware`:
 - pins;
 - `STEPS_PER_REV` (must match SW5–SW8) and `SCREW_LEAD_MM`;
 - `MAX_MOTOR_RPM` (120), which caps the rate at 10 mm/s;
-- the HX711 pins and gain;
+- the HX711 pins and gain, for an HX711 wired to the Mega;
 - optional limit-switch and E-stop pins (−1 = not fitted).
 
 Change them, then upload again.
@@ -360,8 +401,9 @@ Change them, then upload again.
 - The Mega stops a move on its own when:
   - **overload**: |load| ≥ `max_load` while the load is rising, or the HX711 saturates;
   - **test limits**: during a test, the stop load or the break condition is reached;
-  - **load cell lost**: during a test, the load cell stops responding for 0.5 s;
+  - **load cell lost**: during a test, no load reading arrives for 0.5 s. With the HX711 on the Pi this also covers a frozen app or an unplugged amplifier;
   - **watchdog**: the app has sent nothing for 3 s, e.g. the Pi crashed or the cable was unplugged.
+- **Load readings travel over USB** when the HX711 is on the Pi. That adds a few milliseconds before the Mega sees a reading, and a discarded reading (see [docs/hardware.md](docs/hardware.md)) adds one sample period. Both are small next to the two-sample break detection, but they are not zero.
 - **No acceleration ramp.** Moves start at full rate on purpose, to keep the displacement rate constant from the first step. The 120 RPM cap keeps starts reliable; [docs/hardware.md](docs/hardware.md) explains why.
 - **Service mode** (one motor only) racks the crosshead if the screws are coupled. Use it for bring-up only.
 
@@ -370,16 +412,17 @@ Change them, then upload again.
 ## Hardware bring-up checklist
 
 1. **Drivers**: S2 = 5V and DIP = OFF OFF ON ON OFF ON ON ON on **both** drivers. Motor connected before power-up.
-2. **Firmware**: upload from the Arduino IDE or `vsbc flash`. In the Serial Monitor, `?` should print the menu; `STATUS` should show `lc=1` if the HX711 is wired.
+2. **Firmware**: upload from the Arduino IDE or `vsbc flash`. In the Serial Monitor, `?` should print the menu. `STATUS` shows `lc=1` only if an HX711 is wired to the Mega; with the HX711 on the Pi, `lc=0` is expected here.
 3. **One motor at a time**, screws uncoupled if possible: `MOTORS A`, `Z`, `V1`, `M5`. Expect 400 steps, 5.0 mm of screw travel in 5.0 s. Then `MOTORS B` and repeat.
 4. **Both motors**: `MOTORS AB`, `M5`. Both screws move together, the same distance and direction. If B turns the wrong way, `SET invert_b 1`, `SAVE`.
 5. **Cancel**: `V0.5`, `M20`, then type `x` + Enter mid-move. It stops at once, and `H` returns to 0.
-6. **App**: on the Pi, run `vsbc`, connect, then do the calibration steps in [Calibration](#calibration) in order.
-7. **Safety tests**, with a low `max_load`:
+6. **Load cell on the Pi**: `vsbc loadcell`. Expect about 10 or 80 readings per second, counts that change when you press on the load cell, and few discarded readings (a few percent at most).
+7. **App**: on the Pi, run `vsbc`, connect, then do the calibration steps in [Calibration](#calibration) in order.
+8. **Safety tests**, with a low `max_load`:
    - press on the load cell during a jog: `OVERLOAD` stop;
    - unplug the HX711 during a `RUN`: `LOADCELL` stop;
-   - kill the app during a move: `WATCHDOG` stop within 3 s.
-8. **First test**: a sacrificial specimen at a slow rate. Check that the elapsed time matches distance ÷ rate.
+   - kill the app during a move: `WATCHDOG` stop within 3 s (during a `RUN` with the HX711 on the Pi, `LOADCELL` comes first, after 0.5 s).
+9. **First test**: a sacrificial specimen at a slow rate. Check that the elapsed time matches distance ÷ rate.
 
 ---
 
@@ -387,7 +430,7 @@ Change them, then upload again.
 
 ```bash
 pip install -e ".[gui,dev]"
-pytest                          # 57 tests against the simulator (incl. an offscreen GUI run), ~17 s
+pytest                          # 78 tests against the simulator (incl. an offscreen GUI run), ~25 s
 vsbc gui --sim                  # try GUI changes without hardware
 vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 ```
@@ -396,8 +439,8 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 - Both the firmware and the Python package carry a version number. The protocol version must match exactly (the app refuses to connect otherwise); a firmware version mismatch only gives a warning.
 - The Mega sketch is split into modules; the Arduino IDE shows each file as a tab:
   - `motion.*`: Timer1 step engine;
-  - `loadcell_hx711.cpp`: HX711;
-  - `tester.*`: safety, averaging, telemetry;
+  - `loadcell_hx711.cpp`: HX711 wired to the Mega;
+  - `tester.*`: load samples from the host or the Mega's HX711, safety, averaging, telemetry;
   - `commands.*`: parser;
   - `settings.*`: EEPROM.
 - The whole firmware uses about 23 kB of flash and 1.2 kB of RAM on the Mega 2560.
@@ -408,8 +451,9 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 
 - [ ] **Hardware: set SW5–8 to OFF ON ON ON (400 pulses/rev) on both drivers.** The old all-OFF setting is 25000 pulses/rev; the travel calibration flags it.
 - [ ] **Hardware: set S2 to 5V on both drivers.** It ships at 24V.
-- [ ] **Choose and wire the load cell + HX711** (DT → D26, SCK → D27). If possible set the HX711 to 80 samples/s. Put its capacity in `config.toml`.
-- [ ] **Run the new firmware on the real Mega.** It compiles cleanly (arduino-cli, `arduino:avr:mega`) and the app is tested against the simulator, but neither has run on the hardware yet.
+- [ ] **Choose the load cell and wire the SparkFun HX711 to the Pi** (VDD → 3.3V, VCC → 5V, DAT → GPIO5, CLK → GPIO6). If possible set the HX711 to 80 samples/s. Put the load cell's capacity in `config.toml`.
+- [ ] **Measure the HX711 timing on the Pi 5** with `vsbc loadcell`. The reader is tested against a fake GPIO only; the share of discarded readings on the real Pi, with the GUI running, is not known yet.
+- [ ] **Run the new firmware on the real Mega.** Version 2.0.0 compiled cleanly (arduino-cli, `arduino:avr:mega`); 2.1.0 (load readings from the Pi) has not been compiled yet, so `vsbc flash` on the Pi is its first build. The app is tested against the simulator, but neither has run on the hardware.
 - [ ] **Try the GUI on the Pi 5** (tested on Windows).
 - [ ] **Set real travel limits and the overload cutoff** after the first calibration.
 - [ ] **Fit a hardware E-stop** that cuts motor power; optionally limit switches (pins in `config.h`).
@@ -424,8 +468,8 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 Similar open-source testers looked at for this design:
 
 - [CNCKitchen/Open-Pull](https://github.com/CNCKitchen/Open-Pull): Arduino + HX711 + two steppers, controlled from a serial terminal. It shows why the load cell and motion both belong on the microcontroller.
-- [FrancescoNegri/universal-testing-machine](https://github.com/FrancescoNegri/universal-testing-machine): a Raspberry Pi-only tester. The idea for timestamped JSON calibration records comes from here. It reads the HX711 from Linux, which this design avoids (see below).
-- Raspberry Pi forum threads on HX711 bit-banging from Linux ([random values](https://forums.raspberrypi.com/viewtopic.php?t=322131), [hanging](https://forums.raspberrypi.com/viewtopic.php?t=370007)) report occasional bad readings, and note that RPi.GPIO does not run on a Pi 5. This is why the HX711 is read by the Mega.
+- [FrancescoNegri/universal-testing-machine](https://github.com/FrancescoNegri/universal-testing-machine): a Raspberry Pi-only tester. The idea for timestamped JSON calibration records comes from here. It reads the HX711 from Linux, as this design now does by default.
+- Raspberry Pi forum threads on HX711 bit-banging from Linux ([random values](https://forums.raspberrypi.com/viewtopic.php?t=322131), [hanging](https://forums.raspberrypi.com/viewtopic.php?t=370007)) report occasional bad readings, and note that RPi.GPIO does not run on a Pi 5. This is why the reader uses lgpio, times every clock pulse and discards a reading that took too long, why the safety decisions stay on the Mega, and why the HX711 can still be wired to the Mega.
 - [MrYsLab/telemetrix](https://github.com/MrYsLab/telemetrix): a Firmata-style "Python drives the Arduino" library. Its steppers are timed from `loop()`, which is not precise enough for constant-rate lockstep, so this design keeps its own Timer1 engine and protocol.
 - [Real-Time-Py-Serial-Plotter](https://github.com/iskandarputra/Real-Time-Py-Serial-Plotter): the PyQt5 + pyqtgraph pattern used for the live plots.
 - [Arduino CLI on a Raspberry Pi](https://siytek.com/arduino-cli-raspberry-pi/): how `vsbc flash` compiles and uploads.

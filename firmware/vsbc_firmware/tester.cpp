@@ -15,6 +15,11 @@ long    hist[3]   = {0, 0, 0};
 uint8_t hist_n    = 0;
 bool    lc_alive  = false; // load-cell state last reported to the host
 
+// Samples sent by the host (params.lc_host)
+unsigned long host_sample_ms = 0;
+bool          host_have      = false;
+float         host_rate_hz   = 0.0f;
+
 unsigned long last_host_ms          = 0;
 unsigned long last_emit_ms          = 0;
 unsigned long last_overload_warn_ms = 0;
@@ -37,6 +42,12 @@ uint8_t         avg_n     = 0;
 bool estop   = false;
 bool lim_min = false;
 bool lim_max = false;
+
+// True if the active source delivered a sample within LOADCELL_TIMEOUT_MS.
+bool sourceAlive() {
+  if (!params.lc_host) return loadcell::alive();
+  return host_have && millis() - host_sample_ms <= LOADCELL_TIMEOUT_MS;
+}
 
 float toNewtons(long counts) {
   if (!loadCalibrated()) return NAN;
@@ -199,7 +210,7 @@ void onSample(long raw) {
 }
 
 void checkLoadCell() {
-  if (!lc_alive || loadcell::alive()) return;
+  if (!lc_alive || sourceAlive()) return;
   lc_alive = false;
   hist_n = 0;
   last_load = NAN;
@@ -285,7 +296,7 @@ void begin() {
 
 void poll() {
   long raw_value;
-  if (loadcell::poll(raw_value)) onSample(raw_value);
+  if (!params.lc_host && loadcell::poll(raw_value)) onSample(raw_value);
   checkLoadCell();
   checkInputs();
   checkWatchdog();
@@ -336,6 +347,42 @@ bool loadCellAlive() {
 
 unsigned long droppedLines() {
   return dropped;
+}
+
+float sampleRateHz() {
+  if (!params.lc_host) return loadcell::rateHz();
+  return sourceAlive() ? host_rate_hz : 0.0f;
+}
+
+const char *sourceName() {
+  return params.lc_host ? "HOST" : loadcell::name();
+}
+
+void hostSample(long raw) {
+  if (!params.lc_host) return;
+  unsigned long now = millis();
+  if (host_have) {
+    unsigned long dt = now - host_sample_ms;
+    if (dt > 0) {
+      float inst = 1000.0f / dt;
+      host_rate_hz = (host_rate_hz == 0.0f) ? inst : host_rate_hz + 0.1f * (inst - host_rate_hz);
+    }
+  }
+  host_sample_ms = now;
+  host_have = true;
+  onSample(raw);
+}
+
+void sourceChanged() {
+  host_have = false;
+  host_rate_hz = 0.0f;
+  hist_n = 0;
+  last_load = NAN;
+  filt_load = NAN;
+  if (lc_alive) {
+    lc_alive = false;
+    Serial.println(F("EVT LOADCELL state=LOST"));
+  }
 }
 
 bool startAverage(AvgKind kind, float known_n) {

@@ -1,6 +1,6 @@
 """In-process stand-in for the Mega running vsbc_firmware.
 
-It speaks protocol v1 (docs/protocol.md) through the same transport interface
+It speaks protocol v2 (docs/protocol.md) through the same transport interface
 as a pyserial port, so the GUI, the CLI, calibration and the tests all run
 without hardware. The command handling and safety logic mirror
 firmware/vsbc_firmware (commands.cpp, tester.cpp, motion.cpp): when you change
@@ -59,8 +59,9 @@ SETTING_KEYS = {
     "break_drop": (0.0, 0.0, 99.0, 1, False),
     "break_min": (0.0, 0.0, 1e6, 3, False),
     "watchdog_ms": (0, 0, 600000, 0, False),
+    "lc_host": (0, 0, 1, 0, False),
 }
-INT_KEYS = {"load_offset", "dir_invert", "invert_b", "watchdog_ms"}
+INT_KEYS = {"load_offset", "dir_invert", "invert_b", "watchdog_ms", "lc_host"}
 
 _COMPACT = re.compile(r"^([A-Za-z]+)([-+.0-9].*)$")
 
@@ -169,6 +170,7 @@ class SimulatedMega:
         self.hist: list[int] = []
         self.lc_alive = False
         self.last_sample_t: float | None = None
+        self.host_rate_hz = 0.0
         self.avg: dict | None = None
         self.last_host = 0.0
         self.last_emit = 0.0
@@ -229,6 +231,11 @@ class SimulatedMega:
                 self._specimen_template = specimen
             self.specimen = replace(self._specimen_template, broken=False)
             self.mount_mm = self._physical_mm(self._now())
+
+    def adc_counts(self) -> int:
+        """What an HX711 on this load cell reads right now (for a host-side reader)."""
+        with self._lock:
+            return self._read_adc(self._now())
 
     def disconnect_loadcell(self) -> None:
         with self._lock:
@@ -328,7 +335,7 @@ class SimulatedMega:
                     if now >= self._boot_at:
                         self._boot()
                     continue
-                if self.loadcell_connected:
+                if self.loadcell_connected and not self.params["lc_host"]:
                     self._on_sample(self._read_adc(now), now)
                 self._check_loadcell(now)
                 self._check_watchdog(now)
@@ -427,6 +434,24 @@ class SimulatedMega:
         self.settings["load_scale"] = delta / known
         self._emit(f"OK CAL scale={self.settings['load_scale']:.4f} known={known:.3f}")
         self._emit("# Calibration changed in RAM. SAVE to keep it.")
+
+    def _host_sample(self, raw: int, now: float) -> None:
+        if not self.params["lc_host"]:
+            return
+        if self.last_sample_t is not None and now > self.last_sample_t:
+            inst = 1.0 / (now - self.last_sample_t)
+            self.host_rate_hz = inst if self.host_rate_hz == 0 else self.host_rate_hz + 0.1 * (inst - self.host_rate_hz)
+        self._on_sample(raw, now)
+
+    def _source_changed(self) -> None:
+        self.last_sample_t = None
+        self.host_rate_hz = 0.0
+        self.hist = []
+        self.last_load = NAN
+        self.filt_load = NAN
+        if self.lc_alive:
+            self.lc_alive = False
+            self._emit("EVT LOADCELL state=LOST")
 
     def _check_loadcell(self, now: float) -> None:
         alive = self.last_sample_t is not None and now - self.last_sample_t <= LOADCELL_TIMEOUT_S
@@ -567,6 +592,7 @@ class SimulatedMega:
             ("PING", None, self._cmd_ping, True),
             ("STREAM", None, self._cmd_stream, True),
             ("STOP", "X", self._cmd_stop, True),
+            ("LC", None, self._cmd_lc, True),
             ("RATE", "V", self._cmd_rate, False),
             ("MOVE", "M", self._cmd_move, False),
             ("GOTO", "G", self._cmd_goto, False),
@@ -618,19 +644,20 @@ class SimulatedMega:
     def _cmd_help(self, name, args):
         for text in (
             f"VSBC tensile tester firmware {FIRMWARE_VERSION} (simulator)",
-            "Commands: RATE MOVE GOTO HOME RUN STOP ZERO TARE CAL STATUS GET SET SAVE DEFAULTS STREAM MOTORS ID PING HELP",
+            "Commands: RATE MOVE GOTO HOME RUN STOP ZERO TARE CAL STATUS GET SET SAVE DEFAULTS STREAM MOTORS LC ID PING HELP",
             "Data: D <t_ms> <pos_mm> <load_N> <raw> <I|M|R>",
         ):
             self._emit(f"# {text}")
         self._emit(f"OK {name}")
 
     def _cmd_id(self, name, args):
-        self._emit(f"OK {name} name={FIRMWARE_NAME} ver={FIRMWARE_VERSION} proto={PROTOCOL_VERSION} loadcell=HX711 sim=1")
+        self._emit(f"OK {name} name={FIRMWARE_NAME} ver={FIRMWARE_VERSION} proto={PROTOCOL_VERSION} "
+                   f"loadcell={'HOST' if self.params['lc_host'] else 'HX711'} sim=1")
 
     def _cmd_status(self, name, args):
         now = self._now()
         motors = {1: "A", 2: "B"}.get(self.motor_mask, "AB")
-        sps = self.sample_rate_hz if self.lc_alive else 0.0
+        sps = (self.host_rate_hz if self.params["lc_host"] else self.sample_rate_hz) if self.lc_alive else 0.0
         self._emit(
             f"OK {name} state={self._state_name()} pos={self._position(now):.4f} "
             f"load={fmt(self.last_load if self.lc_alive else NAN, 3)} raw={self.last_raw if self.lc_alive else 0} "
@@ -664,6 +691,13 @@ class SimulatedMega:
                 return
             self.last_emit = self._now()
         self._emit(f"OK {name} on={int(self.stream)}")
+
+    def _cmd_lc(self, name, args):
+        try:
+            raw = int(args[0])
+        except (IndexError, ValueError):
+            return                    # no reply, like the firmware
+        self._host_sample(raw, self._now())
 
     def _cmd_stop(self, name, args):
         self._stop("STOP", self._now())
@@ -799,7 +833,7 @@ class SimulatedMega:
             return
         _default, lo, hi, _digits, saved = SETTING_KEYS[key]
         bad = v < lo or v > hi
-        bad |= key in ("dir_invert", "invert_b") and v not in (0.0, 1.0)
+        bad |= key in ("dir_invert", "invert_b", "lc_host") and v not in (0.0, 1.0)
         bad |= key == "watchdog_ms" and v != 0 and v < 100
         bad |= key == "min_pos" and v >= self.settings["max_pos"]
         bad |= key == "max_pos" and v <= self.settings["min_pos"]
@@ -810,6 +844,8 @@ class SimulatedMega:
         (self.settings if saved else self.params)[key] = value
         if key == "steps_per_mm":
             self._reapply_rate()
+        if key == "lc_host":
+            self._source_changed()
         self._emit(f"OK {name} {self._format_setting(key)}")
 
     def _reapply_rate(self) -> None:

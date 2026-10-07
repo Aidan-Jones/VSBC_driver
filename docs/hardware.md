@@ -11,8 +11,8 @@ The [README](../README.md) covers setup and use.
 | Ball screw (×2) | 5 mm lead, coupled directly to the motor | 5 mm/rev → 0.0125 mm per step at 400 pulses/rev |
 | Stepper driver (×2) | Stepperonline Full Digital Stepper Driver DM542T, **Version 4.0** | 1.0–4.5 A, 18–50 VDC, opto-isolated PUL/DIR/ENA |
 | Controller | Arduino Mega 2560 | ATmega2560 @ 16 MHz; Timer1 compare interrupt for stepping |
-| Load cell amplifier | HX711 | 24-bit, 10 or 80 samples/s (RATE pin) |
-| Host | Raspberry Pi 5 | USB to the Mega |
+| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 10 or 80 samples/s (RATE jumper). Wired to the Pi's GPIO pins (default) or to the Mega. |
+| Host | Raspberry Pi 5 | USB to the Mega; reads the load-cell amplifier |
 | Motor power supply | _TODO: voltage / current rating_ | Must be within the DM542T's 18–50 VDC |
 
 ---
@@ -142,7 +142,28 @@ The drivers connect **directly** to the Mega; no transistors are needed. Each dr
 - `A+ / A- / B+ / B-` → motor coil leads (_TODO: confirm colours from the 23HS30-3004S datasheet_)
 - `+Vdc / GND` → motor power supply
 
-### Mega ↔ HX711 ↔ load cell
+### Pi ↔ HX711 ↔ load cell (default)
+
+The SparkFun HX711 breakout is wired to the Pi's 40-pin header. The Pi reads it and sends every reading to the Mega (`LC <raw>`); the Mega still does the tare, the calibration and the safety stops.
+
+| From | To | Notes |
+|---|---|---|
+| HX711 VDD | Pi 3.3V (pin 17) | Logic supply. **Must be 3.3 V**: it sets the level on DAT, and the Pi's GPIO pins are not 5 V tolerant. |
+| HX711 VCC | Pi 5V (pin 2) | Analog supply and load-cell excitation |
+| HX711 GND | Pi GND (pin 30) | |
+| HX711 DAT | Pi GPIO5 (pin 29) | `dout_pin` under `[loadcell]` in `config.toml` (BCM number) |
+| HX711 CLK | Pi GPIO6 (pin 31) | `sck_pin` under `[loadcell]` in `config.toml` (BCM number) |
+| HX711 E+ / E− | Load cell excitation + / − | Usually red / black |
+| HX711 A+ / A− | Load cell signal + / − | Usually green / white. Channel A, gain 128. |
+
+- **Check it first** with `vsbc loadcell`: it prints raw counts, the sample rate and how many readings were discarded. The Mega is not needed for this.
+- **Timing.** The HX711 powers down if CLK stays high for more than 60 µs, and Linux can pause the reading thread for longer than that. The reader (`vsbc/loadcell_pi.py`) times every clock pulse and discards a reading when one took more than 50 µs, plus the reading after it. A discarded reading costs one sample period (12.5 ms at 80 samples/s). If `vsbc loadcell` reports more than a few percent discarded, wire the HX711 to the Mega instead (below).
+- **If the Pi stops sending** (app frozen, HX711 unplugged), the Mega reports "load cell lost" after 0.5 s and ends a running test on its own.
+- The pin numbers are BCM GPIO numbers, not header pin numbers. Any free GPIO works; avoid GPIO2/3 (I2C) and GPIO14/15 (UART).
+
+### Mega ↔ HX711 ↔ load cell (optional)
+
+Set `source = "mega"` under `[loadcell]` in `config.toml`, or start with `--loadcell mega`. This is also what the firmware uses on its own, from the Arduino Serial Monitor.
 
 | From | To | Notes |
 |---|---|---|
@@ -153,7 +174,7 @@ The drivers connect **directly** to the Mega; no transistors are needed. Each dr
 | HX711 E+ / E− | Load cell excitation + / − | Usually red / black |
 | HX711 A+ / A− | Load cell signal + / − | Usually green / white. Channel A, gain 128. |
 
-- **Sample rate.** The HX711 converts 10 or 80 times a second, set by its RATE pin. Most cheap boards tie RATE to GND (10/s); SparkFun-style boards have a jumper. The firmware reacts to a break or overload within a few samples: a few tens of ms at 80/s, a few hundred at 10/s. `STATUS` reports the measured rate (`sps=`).
+- **Sample rate.** The HX711 converts 10 or 80 times a second, set by its RATE pin. Most cheap boards tie RATE to GND (10/s); the SparkFun board has a jumper on the back (cut it for 80/s). This applies to both wirings. The firmware reacts to a break or overload within a few samples: a few tens of ms at 80/s, a few hundred at 10/s. `STATUS` reports the measured rate (`sps=`).
 - Keep the load-cell wires short and twisted, and away from the motor cables.
 - DT is read with the internal pull-up enabled. If the HX711 is missing, DT stays high, the firmware reports "load cell not responding", and manual moves still work.
 
@@ -192,6 +213,7 @@ The slowest rate is 0.002 mm/s (0.12 mm/min). Timer1's floor is about 0.12 steps
 
 - **Timer1 step engine (`motion.cpp`).** Timer1 (16-bit) runs in CTC mode. For each rate the firmware picks the smallest prescaler (1, 8, 64, 256, 1024) for which `OCR1A = F_CPU / (prescaler × 2 × rate) − 1` fits in 16 bits, and records the rate the timer really produces. Each compare match toggles the selected STEP bits with `PORTA ^= mask`; every falling edge counts as one step. When the step count reaches zero the ISR stops the timer. Timer0 is left alone for `millis()`.
 - **Direction.** DIR is set, then the firmware waits 10 µs (V4.0 minimum 5 µs) before the first pulse. Pulses are high for half the step period: 625 µs at the 800 steps/s maximum, far above the 2.5 µs minimum.
+- **Load-cell source.** The setting `lc_host` picks where samples come from: 1 = sent by the host as `LC <raw>` lines (the app sets this when it reads the HX711 on the Pi); 0 = the Mega's own HX711 (the state after a reset). Everything after that point (tare, calibration, safety checks, data lines) is the same for both.
 - **Non-blocking loop.** `loop()` reads serial commands, polls the HX711, runs the safety checks, reports finished moves and sends data lines. Nothing in it waits for a move to finish, so the load cell is sampled and the safety checks run throughout every move.
 - **HX711 reading (`loadcell_hx711.cpp`).** It reads only when DOUT is low (conversion ready), clocking 25 pulses with interrupts **left on**. Each SCK-high pulse lasts about 5–15 µs even when the Timer1 or serial interrupts preempt it; the HX711 only powers down after 60 µs high. So step timing is untouched, and a reading is never corrupted by the step interrupt. After the 25th pulse DOUT must go high again; if it doesn't, the reading is discarded.
 - **Safety (`tester.cpp`).** Each sample is checked, using the median of the last three samples so one bad reading can't trigger a stop:
@@ -209,7 +231,7 @@ The slowest rate is 0.002 mm/s (0.12 mm/min). Timer1's floor is about 0.12 steps
 
 An earlier prototype stepped one motor straight from the Pi's GPIO with Python `sleep()` timing (still in the git history as `Controller1.0.py`). It had two problems:
 
-- **Timing.** Linux scheduling adds jitter, so a constant rate and synchronised motors are not possible. Reading an HX711 from Linux has the same timing problem.
+- **Timing.** Linux scheduling adds jitter, so a constant rate and synchronised motors are not possible.
 - **Logic levels.** With PUL+/DIR+ tied to 5 V and PUL−/DIR− driven by 3.3 V GPIO, the driver input sees about 1.7 V when the pin is "high". That is outside both the V4.0's low (0–0.5 V) and high (4.5–5 V) ranges.
 
-The Mega does the timing-critical work, and the Pi only sends commands.
+The Mega does the timing-critical work. The Pi sends commands and, by default, reads the load-cell amplifier. Reading an HX711 from Linux has a timing problem too, but there a late clock pulse can be detected and the reading thrown away (see [Pi ↔ HX711](#pi--hx711--load-cell-default)); a late step pulse cannot be taken back.

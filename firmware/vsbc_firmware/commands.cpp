@@ -137,6 +137,7 @@ void cmdHelp(const Command &c, uint8_t, char **) {
   Serial.println(F("#   STREAM ON|OFF     a data line for every load sample"));
   Serial.println(F("#   MOTORS AB|A|B     service: pulse one driver only"));
   Serial.println(F("#   ID  PING  HELP [?]"));
+  Serial.println(F("#   SET lc_host 1     load cell read by the host, sent as LC <raw>"));
   Serial.println(F("# Data: D <t_ms> <pos_mm> <load_N> <raw> <I|M|R>"));
 
   Serial.print(F("# Position "));
@@ -157,8 +158,9 @@ void cmdHelp(const Command &c, uint8_t, char **) {
     } else {
       Serial.print(F("not calibrated, "));
     }
-    Serial.print(loadcell::rateHz(), 1);
-    Serial.println(F(" samples/s"));
+    Serial.print(tester::sampleRateHz(), 1);
+    Serial.print(F(" samples/s from "));
+    Serial.println(tester::sourceName());
   }
   ok(c);
   Serial.println();
@@ -168,7 +170,7 @@ void cmdId(const Command &c, uint8_t, char **) {
   ok(c);
   Serial.print(F(" name=" FIRMWARE_NAME " ver=" FIRMWARE_VERSION));
   kvl(F("proto"), PROTOCOL_VERSION);
-  kvs(F("loadcell"), loadcell::name());
+  kvs(F("loadcell"), tester::sourceName());
   Serial.println();
 }
 
@@ -183,7 +185,7 @@ void cmdStatus(const Command &c, uint8_t, char **) {
   kvl(F("ref"), motion::referenced() ? 1 : 0);
   kvl(F("lc"), tester::loadCellAlive() ? 1 : 0);
   kvl(F("cal"), loadCalibrated() ? 1 : 0);
-  kvf(F("sps"), loadcell::rateHz(), 1);
+  kvf(F("sps"), tester::sampleRateHz(), 1);
   kvl(F("stream"), tester::streaming() ? 1 : 0);
   kvu(F("drops"), tester::droppedLines());
   kvu(F("t"), millis());
@@ -215,6 +217,15 @@ void cmdStream(const Command &c, uint8_t argc, char **argv) {
   ok(c);
   kvl(F("on"), tester::streaming() ? 1 : 0);
   Serial.println();
+}
+
+// A load-cell reading from the host. No reply: it arrives up to 80 times a second.
+void cmdLc(const Command &, uint8_t argc, char **argv) {
+  if (argc < 1) return;
+  char *end;
+  long raw = strtol(argv[0], &end, 10);
+  if (end == argv[0] || *end != '\0') return;
+  tester::hostSample(raw);
 }
 
 void cmdStop(const Command &c, uint8_t, char **) {
@@ -394,6 +405,7 @@ void cmdSet(const Command &c, uint8_t argc, char **argv) {
       return;
   }
   if (strcasecmp(argv[0], "steps_per_mm") == 0) reapplyRate();
+  if (strcasecmp(argv[0], "lc_host") == 0) tester::sourceChanged();
   ok(c);
   settingsPrintKey(argv[0], Serial);
   Serial.println();
@@ -421,6 +433,7 @@ const Command COMMANDS[] = {
   {"PING",     nullptr, cmdPing,     true},
   {"STREAM",   nullptr, cmdStream,   true},
   {"STOP",     "X",     cmdStop,     true},
+  {"LC",       nullptr, cmdLc,       true},
   {"RATE",     "V",     cmdRate,     false},
   {"MOVE",     "M",     cmdMove,     false},
   {"GOTO",     "G",     cmdGoto,     false},

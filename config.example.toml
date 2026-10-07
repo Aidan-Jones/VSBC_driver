@@ -17,6 +17,13 @@ ready_timeout_s = 4.0        # the Mega resets when the port opens
 log_data_lines = false       # also write every data line to the serial session log
 
 [loadcell]
+# Where the HX711 load-cell amplifier is wired:
+#   "pi"   = to the Raspberry Pi's GPIO pins (dout_pin / sck_pin below)
+#   "mega" = to the Arduino Mega (D26 / D27)
+source = "pi"
+dout_pin = 5                 # Pi GPIO number (BCM) on the HX711 DAT pin: GPIO5 = header pin 29
+sck_pin = 6                  # Pi GPIO number (BCM) on the HX711 CLK pin: GPIO6 = header pin 31
+gain = 128                   # HX711 gain: 128 or 64 (channel A), 32 (channel B)
 capacity_n = 500.0           # rated capacity of the load cell, N (sets the default overload cutoff)
 gravity = 9.80665            # m/s^2, converts calibration masses to newtons
 

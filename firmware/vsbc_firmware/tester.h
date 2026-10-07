@@ -1,5 +1,6 @@
 /*
-  Everything that happens around the step engine: load-cell samples, safety
+  Everything that happens around the step engine: load-cell samples (sent by
+  the host or read from the Mega's own HX711, see params.lc_host), safety
   stops, TARE/CAL averaging, the host watchdog, optional switch inputs and the
   D / EVT lines sent to the host.
 */
@@ -21,6 +22,13 @@ void setStreaming(bool on);
 float load();             // latest load in N (NAN if unknown)
 long raw();               // latest raw ADC counts
 bool loadCellAlive();
+float sampleRateHz();     // measured sample rate of the active source (0 if not responding)
+const char *sourceName(); // "HOST", or the name of the Mega's ADC
+
+// A reading sent by the host (LC <raw>). Ignored unless params.lc_host is set.
+void hostSample(long raw);
+// Call after params.lc_host changes: forgets the samples of the old source.
+void sourceChanged();
 unsigned long droppedLines();
 
 // Starts averaging AVERAGE_SAMPLES samples; the OK/ERR reply is printed when

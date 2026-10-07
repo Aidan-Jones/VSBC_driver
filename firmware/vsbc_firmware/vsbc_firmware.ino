@@ -2,10 +2,11 @@
   VSBC tensile tester firmware -- Arduino Mega 2560 (ATmega2560, 16 MHz)
 
   Drives two DM542T V4.0 stepper drivers in lockstep (Timer1 compare ISR,
-  jitter-free, constant displacement rate), reads an HX711 load cell, and
-  stops on its own on overload, specimen break, soft travel limits or a silent
-  host. It talks a line protocol (docs/protocol.md) that the Raspberry Pi app
-  uses and that is also readable in the Arduino Serial Monitor.
+  jitter-free, constant displacement rate), takes load-cell readings from the
+  host (LC <raw>) or from its own HX711, and stops on its own on overload,
+  specimen break, a lost load cell, soft travel limits or a silent host. It
+  talks a line protocol (docs/protocol.md) that the Raspberry Pi app uses and
+  that is also readable in the Arduino Serial Monitor.
 
   Arduino IDE: open this file, board "Arduino Mega or Mega 2560", upload.
   No extra libraries are needed. Serial Monitor at 115200 baud; type ? + Enter.

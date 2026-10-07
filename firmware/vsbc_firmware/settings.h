@@ -22,6 +22,7 @@ struct Params {
   float         break_drop;    // %; RUN stops when load falls this far below its peak. 0 = off
   float         break_min;     // N; peak needed before break detection arms. 0 = off
   unsigned long watchdog_ms;   // stop a move if the host is silent this long. 0 = off
+  uint8_t       lc_host;       // 1 = load-cell samples come from the host (LC <raw>), not the Mega's HX711
 };
 
 extern Settings settings;

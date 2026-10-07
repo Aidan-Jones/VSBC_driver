@@ -9,8 +9,8 @@
 #include <Arduino.h>
 
 #define FIRMWARE_NAME    "vsbc_firmware"
-#define FIRMWARE_VERSION "2.0.0"
-#define PROTOCOL_VERSION 1
+#define FIRMWARE_VERSION "2.1.0"
+#define PROTOCOL_VERSION 2
 
 const unsigned long SERIAL_BAUD = 115200;
 
@@ -48,6 +48,9 @@ const float DEFAULT_RATE_MM_S = 0.5f;
 const float TIMER_MAX_STEP_RATE_HZ = 20000.0f;
 
 // --------------------------------------------------------------- load cell --
+// Two sources, chosen at run time with SET lc_host:
+//   0 (after power-up or reset): the HX711 wired to the pins below;
+//   1: the host reads the amplifier itself and sends every reading as LC <raw>.
 #define LOADCELL_HX711 1
 #define LOADCELL_TYPE  LOADCELL_HX711   // selects loadcell_hx711.cpp
 

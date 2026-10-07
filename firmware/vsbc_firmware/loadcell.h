@@ -1,7 +1,11 @@
 /*
-  Load-cell ADC interface. loadcell_hx711.cpp implements it for an HX711; a
-  different ADC (NAU7802, ADS1232, ...) only needs another .cpp that implements
-  these functions, selected with LOADCELL_TYPE in config.h.
+  Interface to a load-cell ADC wired to the Mega. loadcell_hx711.cpp implements
+  it for an HX711; a different ADC (NAU7802, ADS1232, ...) only needs another
+  .cpp that implements these functions, selected with LOADCELL_TYPE in config.h.
+
+  This is the optional source. By default the Raspberry Pi reads the amplifier
+  and sends each reading with LC <raw> (SET lc_host 1); tester.cpp then ignores
+  this ADC.
 */
 #pragma once
 #include <Arduino.h>

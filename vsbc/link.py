@@ -88,7 +88,8 @@ class SessionLog:
             self._file.flush()
 
     def write(self, text: str, sent: bool = False) -> None:
-        if self._file is None or (not self.data_lines and text.startswith("D ")):
+        # Data lines (D from the Mega, LC to it) arrive up to 80 times a second.
+        if self._file is None or (not self.data_lines and text.startswith(("D ", "LC "))):
             return
         stamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         with self._lock:
@@ -163,8 +164,12 @@ class SerialLink:
         self._log.close()
 
     # -------------------------------------------------------------- output --
-    def write_line(self, text: str) -> None:
-        """Send one line without waiting for a reply."""
+    def write_line(self, text: str, quiet: bool = False) -> None:
+        """Send one line without waiting for a reply.
+
+        quiet=True keeps it away from the raw listeners (the GUI console): used
+        for the stream of load-cell readings.
+        """
         if self.closed:
             raise LinkClosed(self.error or "link closed")
         with self._write_lock:
@@ -175,6 +180,8 @@ class SerialLink:
                 raise LinkClosed(self.error) from e
             self.last_tx = time.monotonic()
         self._log.write(text, sent=True)
+        if quiet:
+            return
         for fn in list(self._raw_listeners):
             self._safe_call(fn, text, True)
 

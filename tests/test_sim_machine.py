@@ -1,4 +1,4 @@
-"""End-to-end tests of Machine + SerialLink against the simulator (protocol v1)."""
+"""End-to-end tests of Machine + SerialLink against the simulator (protocol v2)."""
 
 import threading
 import time

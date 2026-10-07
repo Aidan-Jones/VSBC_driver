@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vsbc"
-version = "2.0.0"
-description = "Tensile tester host software: Raspberry Pi app driving an Arduino Mega (steppers + HX711 load cell)"
+version = "2.1.0"
+description = "Tensile tester host software: Raspberry Pi app (HX711 load cell on its GPIO pins) driving an Arduino Mega (steppers, safety stops)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -18,6 +18,8 @@ dependencies = [
 # On the Pi, install these with apt instead (python3-pyqt5 python3-pyqtgraph).
 gui = ["pyqtgraph>=0.13", "PyQt5>=5.15"]
 dev = ["pytest>=7"]
+# GPIO access for the load-cell amplifier. On the Pi, apt's python3-lgpio is used instead.
+pi = ["lgpio>=0.2"]
 
 [project.scripts]
 vsbc = "vsbc.cli:main"

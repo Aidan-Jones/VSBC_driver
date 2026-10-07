@@ -2,7 +2,9 @@
 
 `Machine` wraps a `SerialLink` (real Mega or `SimulatedMega`): it does the
 connect handshake, keeps the latest sample, forwards messages to listeners,
-pings the firmware watchdog and offers one method per firmware command.
+pings the firmware watchdog and offers one method per firmware command. It
+also reads the load-cell amplifier on the Pi's GPIO pins and feeds every
+reading to the Mega (config.loadcell.source = "pi", the default).
 Units: mm, N, mm/s (use mm_min_to_mm_s for test rates in mm/min).
 """
 
@@ -90,8 +92,13 @@ class Status:
 
 
 class Machine:
-    def __init__(self, config: Config | None = None):
+    def __init__(self, config: Config | None = None, loadcell_reader=None):
+        """`loadcell_reader` replaces the HX711 on the Pi's GPIO pins (tests): any
+        object with read() -> int | None and close()."""
         self.config = config or load_config()
+        self.loadcell_source = "mega"         # "pi" while this host feeds the readings
+        self._loadcell_reader = loadcell_reader
+        self._feeder = None
         self.link: SerialLink | None = None
         self.sim = None                       # SimulatedMega when simulating
         self.info: FirmwareInfo | None = None
@@ -132,11 +139,13 @@ class Machine:
     def connected(self) -> bool:
         return self.link is not None and not self.link.closed
 
-    def connect(self, port: str | None = None, sim=False, *, stream: bool = True, watchdog: bool = True) -> FirmwareInfo:
+    def connect(self, port: str | None = None, sim=False, *, stream: bool = True, watchdog: bool = True,
+                loadcell: bool = True) -> FirmwareInfo:
         """Open the port, wait for the firmware and configure it.
 
         `sim` may be True (default simulator) or a SimulatedMega instance.
         With watchdog=False (terminal use) the firmware watchdog is turned off.
+        With loadcell=False the Pi's load-cell pins are left alone.
         """
         if self.connected:
             self.disconnect()
@@ -211,18 +220,22 @@ class Machine:
             self.link = link
             self.port = port_name
             self.set("watchdog_ms", self.config.watchdog_ms if watchdog else 0)
+            if loadcell:
+                self._start_host_load_cell()
             self.stream(stream)
             if stream:
                 self._wait_for_load_cell(1.5)
             self.refresh_settings()
             status = self.status()
             if not status.loadcell_ok:
-                self.warnings.append("Load cell not responding (check the HX711 wiring).")
+                where = "Pi" if self.loadcell_source == "pi" else "Mega"
+                self.warnings.append(f"Load cell not responding (check the HX711 wiring to the {where}).")
             elif not status.calibrated:
                 self.warnings.append("Load cell not calibrated.")
             if not status.referenced:
                 self.warnings.append("Position not referenced: set zero at the reference position.")
         except BaseException:
+            self._stop_host_load_cell()
             link.close()
             self.link = None
             if self.sim is not None:
@@ -236,7 +249,8 @@ class Machine:
             self._stop_ping.clear()
             self._ping_thread = threading.Thread(target=self._ping_loop, name="vsbc-ping", daemon=True)
             self._ping_thread.start()
-        log.info("connected to %s: %s %s (protocol %d)", port_name, self.info.name, self.info.version, proto)
+        log.info("connected to %s: %s %s (protocol %d), load cell read by the %s", port_name, self.info.name,
+                 self.info.version, proto, "Pi" if self.loadcell_source == "pi" else "Mega")
         return self.info
 
     def disconnect(self) -> None:
@@ -253,12 +267,50 @@ class Machine:
                     self._save_position(status)
             except (LinkClosed, TimeoutError, DeviceError, OSError) as e:
                 log.warning("disconnect: %s", e)
+        self._stop_host_load_cell()
         link.close()
         self.link = None
         if self.sim is not None:
             self.sim.close()
             self.sim = None
         log.info("disconnected")
+
+    def _start_host_load_cell(self) -> None:
+        """Read the HX711 on the Pi's GPIO pins and feed the Mega (`LC <raw>`).
+
+        Falls back to the HX711 wired to the Mega, with a warning, when the
+        Pi's GPIO is not available (for example on a PC).
+        """
+        from vsbc.loadcell_pi import LoadCellFeeder, LoadCellUnavailable, PiHX711
+
+        self.loadcell_source = "mega"
+        reader = self._loadcell_reader
+        if reader is None:
+            lc = self.config.loadcell
+            if lc.source != "pi" or self.sim is not None:
+                return
+            try:
+                reader = PiHX711(lc.dout_pin, lc.sck_pin, lc.gain)
+            except LoadCellUnavailable as e:
+                self.warnings.append(
+                    f"Cannot read the load cell on the Pi's GPIO pins ({e}). Using the HX711 wired to the Mega instead; "
+                    'set source = "mega" under [loadcell] in config.toml to make that the choice.'
+                )
+                return
+        link = self.link
+        try:
+            self.set("lc_host", 1)
+        except BaseException:
+            reader.close()
+            raise
+        self._feeder = LoadCellFeeder(reader, lambda raw: link.write_line(f"LC {raw}", quiet=True))
+        self._feeder.start()
+        self.loadcell_source = "pi"
+
+    def _stop_host_load_cell(self) -> None:
+        feeder, self._feeder = self._feeder, None
+        if feeder is not None:
+            feeder.stop()
 
     def _wait_for_load_cell(self, timeout: float) -> bool:
         """After a reset the first load-cell conversion can take a moment."""

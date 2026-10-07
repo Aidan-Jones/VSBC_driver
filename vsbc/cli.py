@@ -8,6 +8,7 @@
     vsbc analyze <folder>     recompute a test's summary and plot
     vsbc flash                compile + upload the firmware (arduino-cli)
     vsbc ports                list serial ports
+    vsbc loadcell             check the HX711 wired to the Pi's GPIO pins
 
 Add --sim to any hardware command to use the built-in simulator.
 """
@@ -24,7 +25,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from vsbc import __version__
-from vsbc.config import Config, load_config
+from vsbc.config import LOADCELL_SOURCES, Config, load_config
 from vsbc.firmware import FirmwareToolError
 from vsbc.link import DeviceError, LinkClosed, PortNotFound, find_port, list_ports
 from vsbc.logs import setup_logging
@@ -171,7 +172,7 @@ def _calibrate_load(m: Machine, cfg: Config) -> int:
     from vsbc.calibration import LoadPoint, apply_load_fit, collect_raw, fit_load_calibration, parse_load, save_record
 
     if not m.status().loadcell_ok:
-        print("Load cell not responding: check the HX711 wiring.")
+        print(f"Load cell not responding: check the HX711 wiring to the {'Pi' if m.loadcell_source == 'pi' else 'Mega'}.")
         return 1
     print("Load-cell calibration. Apply the known loads in the tension direction (for example hang weights).")
     input("Remove all load, then press Enter to tare... ")
@@ -307,9 +308,44 @@ def cmd_flash(args, cfg: Config) -> int:
     upload_firmware(port, args.cli)
     time.sleep(1.0)
     m = Machine(cfg)
-    info = m.connect(port, stream=False, watchdog=False)
+    info = m.connect(port, stream=False, watchdog=False, loadcell=False)
     print(f"Firmware on {port}: {info.name} {info.version} (protocol {info.protocol})")
     m.disconnect()
+    return 0
+
+
+def cmd_loadcell(args, cfg: Config) -> int:
+    """Bring-up check of the HX711 on the Pi's GPIO pins. The Mega is not used."""
+    from vsbc.loadcell_pi import LoadCellUnavailable, PiHX711
+
+    lc = cfg.loadcell
+    try:
+        reader = PiHX711(lc.dout_pin, lc.sck_pin, lc.gain)
+    except LoadCellUnavailable as e:
+        print(f"Cannot read the load cell on the Pi's GPIO pins: {e}", file=sys.stderr)
+        return 1
+    print(f"HX711 on GPIO{lc.dout_pin} (DAT) / GPIO{lc.sck_pin} (CLK), gain {lc.gain}. Raw counts for {args.seconds:g} s:")
+    good = 0
+    start = last_print = time.monotonic()
+    try:
+        while time.monotonic() - start < args.seconds:
+            raw = reader.read()
+            if raw is None:
+                continue
+            good += 1
+            now = time.monotonic()
+            if now - last_print >= 0.25:
+                last_print = now
+                print(f"  {raw:9d}", flush=True)
+    finally:
+        elapsed = time.monotonic() - start
+        reader.close()
+    if good == 0:
+        print("No readings: check the wiring (VDD to 3.3V, VCC to 5V, GND, DAT, CLK) and the pin numbers in config.toml.")
+        return 1
+    total = good + reader.discarded
+    print(f"{good} readings in {elapsed:.1f} s = {good / elapsed:.1f} per second; "
+          f"{reader.discarded} discarded ({100 * reader.discarded / total:.1f} %).")
     return 0
 
 
@@ -326,6 +362,8 @@ def build_parser() -> argparse.ArgumentParser:
     def hardware(sp):
         sp.add_argument("--port", help="serial port, e.g. /dev/ttyACM0 or COM5 (default: auto-detect)")
         sp.add_argument("--sim", action="store_true", help="use the built-in simulator instead of the Mega")
+        sp.add_argument("--loadcell", choices=LOADCELL_SOURCES,
+                        help="where the HX711 is wired (default: 'source' in config.toml, normally pi)")
 
     g = sub.add_parser("gui", help="touchscreen GUI (the default)")
     hardware(g)
@@ -368,12 +406,15 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--compile-only", action="store_true")
 
     sub.add_parser("ports", help="list serial ports")
+
+    lc = sub.add_parser("loadcell", help="check the HX711 wired to the Pi's GPIO pins (raw counts, sample rate)")
+    lc.add_argument("--seconds", type=float, default=5.0, help="how long to read")
     return p
 
 
 COMMANDS = {
     "gui": cmd_gui, "terminal": cmd_terminal, "test": cmd_test, "calibrate": cmd_calibrate,
-    "analyze": cmd_analyze, "flash": cmd_flash, "ports": cmd_ports,
+    "analyze": cmd_analyze, "flash": cmd_flash, "ports": cmd_ports, "loadcell": cmd_loadcell,
 }
 
 
@@ -382,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config)
     if args.output_dir:
         cfg.output_dir = Path(args.output_dir).resolve()
+    if getattr(args, "loadcell", None):
+        cfg.loadcell.source = args.loadcell
     setup_logging(cfg.logs_dir, logging.DEBUG if args.verbose else logging.INFO)
     command = args.command or "gui"
     log.info("vsbc %s: %s", __version__, command)

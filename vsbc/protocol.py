@@ -1,4 +1,4 @@
-"""Parsing and formatting for serial protocol v1 (docs/protocol.md).
+"""Parsing and formatting for serial protocol v2 (docs/protocol.md).
 
 Pure functions and small dataclasses only, so the same code serves the real
 link, the simulator and the tests.

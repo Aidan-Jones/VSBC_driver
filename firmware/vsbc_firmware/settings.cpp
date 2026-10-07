@@ -3,7 +3,7 @@
 #include "settings.h"
 
 Settings settings;
-Params params = {0.0f, 0.0f, 0.0f, 0};
+Params params = {0.0f, 0.0f, 0.0f, 0, 0};
 
 namespace {
 
@@ -49,6 +49,7 @@ const KeyDef KEYS[] = {
   {"break_drop",   K_FLOAT, &params.break_drop,     0.0f, 99.0f, 1},
   {"break_min",    K_FLOAT, &params.break_min,      0.0f, 1.0e6f, 3},
   {"watchdog_ms",  K_ULONG, &params.watchdog_ms,    0.0f, 600000.0f, 0},
+  {"lc_host",      K_BOOL,  &params.lc_host,        0.0f, 1.0f, 0},
 };
 const uint8_t KEY_COUNT = sizeof(KEYS) / sizeof(KEYS[0]);
 

@@ -1,7 +1,8 @@
 """Host configuration.
 
 Machine calibration (steps/mm, load-cell scale, travel limits) lives in the
-Mega's EEPROM, not here. This only holds host preferences and test defaults.
+Mega's EEPROM, not here. This only holds host preferences, test defaults and
+where the load-cell amplifier is wired.
 Values come from an optional TOML file (see config.example.toml), searched in
 this order: --config, $VSBC_CONFIG, <repo>/config.toml, ~/.config/vsbc/config.toml.
 """
@@ -18,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FIRMWARE_DIR = REPO_ROOT / "firmware" / "vsbc_firmware"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "Outputs"
 CONFIG_ENV = "VSBC_CONFIG"
+LOADCELL_SOURCES = ("pi", "mega")
 
 
 @dataclass
@@ -30,6 +32,10 @@ class SerialConfig:
 
 @dataclass
 class LoadCellConfig:
+    source: str = "pi"               # "pi": HX711 on the Pi's GPIO pins; "mega": HX711 on the Mega
+    dout_pin: int = 5                # Pi GPIO (BCM number) wired to the HX711 DAT pin
+    sck_pin: int = 6                 # Pi GPIO (BCM number) wired to the HX711 CLK pin
+    gain: int = 128                  # HX711 gain: 128 or 64 (channel A), 32 (channel B)
     capacity_n: float = 500.0        # rated capacity; sets the default max_load
     gravity: float = 9.80665         # m/s^2, converts calibration masses to N
 
@@ -84,7 +90,8 @@ class Config:
 
 def _apply(obj, data: dict, where: str = "") -> None:
     for key, value in data.items():
-        if key == "source" or not hasattr(obj, key):
+        # Config.source (the file that was read) is not a setting; loadcell.source is.
+        if (key == "source" and not where) or not hasattr(obj, key):
             raise ValueError(f"unknown config key '{where}{key}'")
         current = getattr(obj, key)
         if dataclasses.is_dataclass(current):
@@ -113,6 +120,9 @@ def load_config(path: str | Path | None = None) -> Config:
                 _apply(cfg, tomllib.load(f))
             cfg.source = candidate
             break
+
+    if cfg.loadcell.source not in LOADCELL_SOURCES:
+        raise ValueError(f"config key 'loadcell.source' must be one of {LOADCELL_SOURCES}, not {cfg.loadcell.source!r}")
 
     out = Path(cfg.output_dir).expanduser()
     if not out.is_absolute():
