@@ -4,6 +4,7 @@
     vsbc terminal             serial terminal + session log (replaces serial_logger.py)
     vsbc test --specimen A1   pull-to-failure test without the GUI
     vsbc calibrate load       load-cell calibration with known weights
+    vsbc calibrate load --no-mega   the same on the Pi alone, no Mega attached
     vsbc calibrate travel     steps/mm calibration with a measured move
     vsbc analyze <folder>     recompute a test's summary and plot
     vsbc flash                compile + upload the firmware (arduino-cli)
@@ -168,17 +169,14 @@ def cmd_test(args, cfg: Config) -> int:
         m.disconnect()
 
 
-def _calibrate_load(m: Machine, cfg: Config) -> int:
-    from vsbc.calibration import LoadPoint, apply_load_fit, collect_raw, fit_load_calibration, parse_load, save_record
+def _collect_load_points(cfg: Config, collect, sim=None) -> list:
+    """The zero point, then one point per known load the operator enters.
 
-    if not m.status().loadcell_ok:
-        print(f"Load cell not responding: check the HX711 wiring to the {'Pi' if m.loadcell_source == 'pi' else 'Mega'}.")
-        return 1
-    print("Load-cell calibration. Apply the known loads in the tension direction (for example hang weights).")
-    input("Remove all load, then press Enter to tare... ")
-    reply = m.tare()
-    print(f"  Tare offset {reply.get('offset')} counts, noise {reply.get('noise')} counts")
-    mean, std, n = collect_raw(m)
+    `collect()` returns (mean, std, n) of the raw counts over a few seconds.
+    """
+    from vsbc.calibration import LoadPoint, parse_load
+
+    mean, std, n = collect()
     points = [LoadPoint(0.0, mean, std, n, "zero")]
     idle_noise = std
     print(f"  0 N: {mean:.0f} counts (std {std:.1f}, {n} samples)")
@@ -191,22 +189,79 @@ def _calibrate_load(m: Machine, cfg: Config) -> int:
         except ValueError as e:
             print(f"  {e}")
             continue
-        if m.sim:
-            m.sim.set_external_load(force)
+        if sim:
+            sim.set_external_load(force)
         input(f"Apply {force:.3f} N, let it settle, then press Enter... ")
-        mean, std, n = collect_raw(m)
+        mean, std, n = collect()
         noisy = "  (noisy: is it still swinging?)" if idle_noise and std > 3 * idle_noise else ""
         points.append(LoadPoint(force, mean, std, n, text))
         print(f"  {force:.3f} N: {mean:.0f} counts (std {std:.1f}){noisy}")
-    if m.sim:
-        m.sim.set_external_load(0.0)
+    if sim:
+        sim.set_external_load(0.0)
+    return points
+
+
+def _fit_load_points(points: list, cfg: Config):
+    """Fit and print the result; None if there are not enough points."""
+    from vsbc.calibration import fit_load_calibration
+
     if len(points) < 2:
         print("Need at least one known load.")
-        return 1
+        return None
     fit = fit_load_calibration(points, cfg.loadcell.capacity_n)
     print(f"\nScale {fit.scale:.4f} counts/N, zero {fit.offset:.0f} counts, R2 {fit.r2:.6f}")
     pct = f" ({fit.max_residual_pct_fs:.3f} % of {cfg.loadcell.capacity_n:g} N)" if fit.max_residual_pct_fs is not None else ""
     print(f"Largest residual {fit.max_residual_n:.3f} N{pct}")
+    return fit
+
+
+def _calibrate_load_no_mega(cfg: Config, seconds: float = 3.0) -> int:
+    """Calibrate with only the Pi and the HX711. The Mega gets the result the next time the app connects to it."""
+    from vsbc.calibration import collect_raw_reader, save_pending_load, save_record
+    from vsbc.loadcell_pi import LoadCellUnavailable, PiHX711
+
+    lc = cfg.loadcell
+    try:
+        reader = PiHX711(lc.dout_pin, lc.sck_pin, lc.gain)
+    except LoadCellUnavailable as e:
+        print(f"Cannot read the load cell on the Pi's GPIO pins: {e}", file=sys.stderr)
+        return 1
+    try:
+        print("Load-cell calibration without the Mega. Apply the known loads in the tension direction "
+              "(for example hang weights).")
+        input("Remove all load, then press Enter... ")
+        points = _collect_load_points(cfg, lambda: collect_raw_reader(reader, seconds))
+    finally:
+        reader.close()
+    fit = _fit_load_points(points, cfg)
+    if fit is None:
+        return 1
+    if not confirm("Keep this calibration? It is stored on the Mega the next time the app connects to it."):
+        return 1
+    save_pending_load(cfg.pending_load_file, fit)
+    path = save_record(cfg.calibration_dir, "load", {
+        "points": points, "fit": fit, "capacity_n": lc.capacity_n, "gravity": lc.gravity,
+        "source": "pi", "gain": lc.gain, "applied": False, "firmware": None, "port": None,
+    })
+    print(f"Kept: it will be stored on the Mega at the next connection. Record: {path}")
+    print("The overload cutoff (max_load) is set on the Mega: check it in the Calibrate tab after connecting.")
+    return 0
+
+
+def _calibrate_load(m: Machine, cfg: Config) -> int:
+    from vsbc.calibration import apply_load_fit, collect_raw, save_record
+
+    if not m.status().loadcell_ok:
+        print(f"Load cell not responding: check the HX711 wiring to the {'Pi' if m.loadcell_source == 'pi' else 'Mega'}.")
+        return 1
+    print("Load-cell calibration. Apply the known loads in the tension direction (for example hang weights).")
+    input("Remove all load, then press Enter to tare... ")
+    reply = m.tare()
+    print(f"  Tare offset {reply.get('offset')} counts, noise {reply.get('noise')} counts")
+    points = _collect_load_points(cfg, lambda: collect_raw(m), sim=m.sim)
+    fit = _fit_load_points(points, cfg)
+    if fit is None:
+        return 1
     if not confirm("Save this calibration to the machine?"):
         return 1
     apply_load_fit(m, fit)
@@ -262,6 +317,10 @@ def _calibrate_travel(m: Machine, cfg: Config) -> int:
 
 
 def cmd_calibrate(args, cfg: Config) -> int:
+    if args.no_mega:
+        if args.what != "load":
+            raise ValueError("--no-mega only works with 'calibrate load': the travel calibration moves the motors")
+        return _calibrate_load_no_mega(cfg)
     m = _connect(args, cfg)
     try:
         return _calibrate_load(m, cfg) if args.what == "load" else _calibrate_travel(m, cfg)
@@ -390,6 +449,8 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("calibrate", help="calibrate the load cell or the crosshead travel")
     hardware(c)
     c.add_argument("what", choices=["load", "travel"])
+    c.add_argument("--no-mega", action="store_true",
+                   help="calibrate the load cell on the Pi alone; the Mega gets the result at the next connection")
 
     a = sub.add_parser("analyze", help="recompute the summary and plot of a test")
     a.add_argument("path", help="test folder or its data.csv")

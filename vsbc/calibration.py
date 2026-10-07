@@ -117,6 +117,26 @@ def collect_raw(machine, seconds: float = 3.0, min_samples: int = 5) -> tuple[fl
                 continue
     finally:
         machine.remove_listener(listener)
+    return _mean_std_n(values)
+
+
+def collect_raw_reader(reader, seconds: float = 3.0, min_samples: int = 5) -> tuple[float, float, int]:
+    """Like collect_raw, but straight from a load-cell reader (loadcell_pi.PiHX711): no Mega needed."""
+    values = []
+    deadline = time.monotonic() + seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 and len(values) >= min_samples:
+            break
+        if remaining < -5.0:
+            raise TimeoutError("no load-cell readings arriving (is the HX711 wired to the Pi?)")
+        raw = reader.read()
+        if raw is not None:
+            values.append(raw)
+    return _mean_std_n(values)
+
+
+def _mean_std_n(values: list[int]) -> tuple[float, float, int]:
     arr = np.array(values, dtype=float)
     return float(arr.mean()), float(arr.std(ddof=1)) if len(arr) > 1 else 0.0, len(arr)
 
@@ -125,6 +145,30 @@ def apply_load_fit(machine, fit: LoadFit) -> None:
     machine.set("load_scale", fit.scale)
     machine.set("load_offset", int(round(fit.offset)))
     machine.save()
+
+
+# A calibration made without the Mega (`vsbc calibrate load --no-mega`) waits in
+# this file until the app next connects to the Mega, which then stores it.
+
+def save_pending_load(path: Path, fit: LoadFit) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "scale": fit.scale,
+        "offset": int(round(fit.offset)),
+        "created": datetime.now().isoformat(timespec="seconds"),
+    }, indent=2))
+
+
+def load_pending_load(path: Path) -> dict | None:
+    """The waiting calibration ({"scale", "offset", "created"}), or None."""
+    try:
+        data = json.loads(path.read_text())
+        scale, offset = float(data["scale"]), int(data["offset"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if scale == 0 or not math.isfinite(scale):
+        return None
+    return {"scale": scale, "offset": offset, "created": str(data.get("created", "?"))}
 
 
 # --------------------------------------------------------------------- travel --

@@ -222,6 +222,7 @@ class Machine:
             self.set("watchdog_ms", self.config.watchdog_ms if watchdog else 0)
             if loadcell:
                 self._start_host_load_cell()
+                self._apply_pending_load_calibration()
             self.stream(stream)
             if stream:
                 self._wait_for_load_cell(1.5)
@@ -306,6 +307,36 @@ class Machine:
         self._feeder = LoadCellFeeder(reader, lambda raw: link.write_line(f"LC {raw}", quiet=True))
         self._feeder.start()
         self.loadcell_source = "pi"
+
+    def _apply_pending_load_calibration(self) -> None:
+        """Store a calibration made without the Mega (`vsbc calibrate load --no-mega`).
+
+        It was measured with the HX711 on the Pi, so it is only applied while
+        the Pi is the load-cell source; otherwise the file keeps waiting.
+        """
+        from vsbc.calibration import load_pending_load
+
+        path = self.config.pending_load_file
+        if self.loadcell_source != "pi" or not path.is_file():
+            return
+        pending = load_pending_load(path)
+        if pending is None:
+            self.warnings.append(f"Could not read the waiting load-cell calibration in {path}; it was not applied.")
+            return
+        try:
+            self.set("load_scale", pending["scale"])
+            self.set("load_offset", pending["offset"])
+            self.save()
+        except DeviceError as e:
+            self.warnings.append(f"The load-cell calibration made without the Mega was refused ({e}); it is still in {path}.")
+            return
+        path.unlink(missing_ok=True)
+        notice = (f"Stored the load-cell calibration made without the Mega on {pending['created']} "
+                  f"({pending['scale']:.4f} counts/N).")
+        if self.refresh_settings().get("max_load", 0.0) <= 0:
+            notice += " The overload cutoff (max_load) is off: set it in the Calibrate tab."
+        self.warnings.append(notice)
+        log.info(notice)
 
     def _stop_host_load_cell(self) -> None:
         feeder, self._feeder = self._feeder, None

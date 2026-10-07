@@ -263,3 +263,136 @@ def test_source_must_be_pi_or_mega(tmp_path):
     path.write_text('[loadcell]\nsource = "arduino"\n')
     with pytest.raises(ValueError, match="loadcell.source"):
         load_config(path)
+
+
+# ------------------------------------------- calibration without the Mega --
+
+class WeightReader:
+    """A load cell on the Pi: `counts` is whatever is hanging on it right now."""
+
+    def __init__(self, counts=None):
+        self.counts = counts
+        self.closed = False
+
+    def read(self):
+        time.sleep(0.002)
+        return self.counts
+
+    def close(self):
+        self.closed = True
+
+
+def test_collect_raw_reader_averages_the_readings():
+    from vsbc.calibration import collect_raw_reader
+
+    mean, std, n = collect_raw_reader(WeightReader(84213), seconds=0.1)
+    assert mean == 84213 and std == 0 and n >= 5
+
+
+def test_collect_raw_reader_times_out_without_readings(monkeypatch):
+    from vsbc import calibration
+
+    clock = iter(x * 2.0 for x in range(100))
+    monkeypatch.setattr(calibration.time, "monotonic", lambda: next(clock))
+    with pytest.raises(TimeoutError):
+        calibration.collect_raw_reader(WeightReader(None), seconds=0.1)
+
+
+SCALE, OFFSET = 4194.304, 84213      # counts per newton, counts at zero load
+
+
+def _calibrate_without_mega(config, monkeypatch, answers):
+    from vsbc import cli
+
+    reader = WeightReader(OFFSET)
+    monkeypatch.setattr(loadcell_pi, "PiHX711", lambda *args, **kwargs: reader)
+    answers = iter(answers)
+
+    def fake_input(prompt=""):
+        answer = next(answers)
+        if prompt.startswith("Apply "):                 # "Apply 98.066 N, let it settle..."
+            reader.counts = round(OFFSET + SCALE * float(prompt.split()[1]))
+        return answer
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    return cli._calibrate_load_no_mega(config, seconds=0.05), reader
+
+
+def test_calibration_without_the_mega_is_kept_for_later(config, monkeypatch):
+    from vsbc.calibration import latest_record, load_pending_load
+
+    # Enter (no load), two known loads with Enter after applying each, Enter to finish, "y" to keep.
+    code, reader = _calibrate_without_mega(config, monkeypatch, ["", "10 N", "", "5 kg", "", "", "y"])
+    assert code == 0 and reader.closed
+    pending = load_pending_load(config.pending_load_file)
+    assert pending["scale"] == pytest.approx(SCALE, rel=1e-4)
+    assert pending["offset"] == pytest.approx(OFFSET, abs=2)
+    _, record = latest_record(config.calibration_dir, "load")
+    assert record["applied"] is False and record["source"] == "pi" and len(record["points"]) == 3
+
+
+def test_calibration_without_the_mega_can_be_declined(config, monkeypatch):
+    code, _ = _calibrate_without_mega(config, monkeypatch, ["", "10 N", "", "", "n"])
+    assert code == 1 and not config.pending_load_file.exists()
+
+
+def test_no_mega_is_only_for_the_load_cell(config):
+    from vsbc import cli
+
+    args = cli.build_parser().parse_args(["calibrate", "travel", "--no-mega"])
+    with pytest.raises(ValueError, match="no-mega"):
+        cli.cmd_calibrate(args, config)
+
+
+def _write_pending(config, scale=1234.5, offset=4321):
+    from vsbc.calibration import LoadFit, save_pending_load
+
+    save_pending_load(config.pending_load_file, LoadFit(scale, offset, 1.0, [], 0.0, None))
+
+
+def test_pending_calibration_is_stored_on_the_mega_once(config, tmp_path):
+    from vsbc.sim import SimulatedMega
+
+    _write_pending(config)
+    eeprom = tmp_path / "eeprom.json"
+    sim = SimulatedMega(eeprom_path=eeprom)
+    m = Machine(config, loadcell_reader=SimReader(sim))
+    m.connect(sim=sim)
+    try:
+        assert m.settings["load_scale"] == pytest.approx(1234.5)
+        assert m.settings["load_offset"] == 4321
+        assert any("made without the Mega" in w and "max_load" in w for w in m.warnings)
+        assert not config.pending_load_file.exists()
+    finally:
+        m.disconnect()
+
+    # Saved in the EEPROM, and nothing is applied a second time.
+    sim = SimulatedMega(eeprom_path=eeprom)
+    m = Machine(config, loadcell_reader=SimReader(sim))
+    m.connect(sim=sim)
+    try:
+        assert m.settings["load_scale"] == pytest.approx(1234.5)
+        assert not any("made without the Mega" in w for w in m.warnings)
+    finally:
+        m.disconnect()
+
+
+def test_pending_calibration_waits_while_the_mega_reads_the_load_cell(config, machine):
+    _write_pending(config)
+    machine.disconnect()
+    machine.connect(sim=True)                       # load cell read by the (simulated) Mega
+    assert machine.loadcell_source == "mega"
+    assert machine.settings["load_scale"] != pytest.approx(1234.5)
+    assert config.pending_load_file.exists()
+
+
+def test_unreadable_pending_calibration_is_reported_not_applied(config, sim):
+    config.pending_load_file.parent.mkdir(parents=True, exist_ok=True)
+    config.pending_load_file.write_text("not json")
+    m = Machine(config, loadcell_reader=SimReader(sim))
+    m.connect(sim=sim)
+    try:
+        assert any("Could not read the waiting" in w for w in m.warnings)
+        assert m.settings["load_scale"] == pytest.approx(sim.true_scale)
+    finally:
+        m.disconnect()

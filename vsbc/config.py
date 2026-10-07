@@ -87,6 +87,11 @@ class Config:
     def state_file(self) -> Path:
         return self.output_dir / "last_position.json"
 
+    @property
+    def pending_load_file(self) -> Path:
+        """Load-cell calibration made without the Mega, waiting to be stored on it."""
+        return self.output_dir / "pending_load_calibration.json"
+
 
 def _apply(obj, data: dict, where: str = "") -> None:
     for key, value in data.items():

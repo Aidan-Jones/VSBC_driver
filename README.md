@@ -144,18 +144,28 @@ The Pi connects to the Mega with a USB cable. Opening the port resets the Mega, 
 
 ### Raspberry Pi (the self-contained system)
 
-Starting from a Pi with only Raspberry Pi OS installed and an internet connection, in a terminal:
+Starting from a Pi with only Raspberry Pi OS installed and an internet connection:
 
-```bash
-sudo apt update && sudo apt install -y git
-git clone https://github.com/Aidan-Jones/VSBC_driver.git
-cd VSBC_driver
-bash scripts/install_pi.sh     # apt packages, Python environment, arduino-cli, desktop launcher
-# log out and back in once (serial-port and GPIO permissions)
-vsbc flash                     # compile + upload the firmware to the Mega
-vsbc loadcell                  # check the HX711 wired to the Pi
-vsbc                           # start the GUI (also in the desktop menu as "VSBC Tensile Tester")
-```
+1. In a terminal, download and install:
+
+   ```bash
+   sudo apt update && sudo apt install -y git
+   git clone https://github.com/Aidan-Jones/VSBC_driver.git
+   cd VSBC_driver
+   bash scripts/install_pi.sh     # apt packages, Python environment, arduino-cli, desktop launcher
+   ```
+
+2. **Log out and back in once** (or reboot). This gives your user permission to use the Mega's serial port and the GPIO pins.
+
+3. Then:
+
+   ```bash
+   vsbc flash                     # compile + upload the firmware to the Mega
+   vsbc loadcell                  # check the HX711 wired to the Pi
+   vsbc                           # start the GUI (also in the desktop menu as "VSBC Tensile Tester")
+   ```
+
+If the terminal says `vsbc: command not found`, the install script did not finish (it stops at the first error): run it again and read its last lines. The command itself is at `VSBC_driver/.venv/bin/vsbc` and can always be run by that full path, for example `~/VSBC_driver/.venv/bin/vsbc flash`.
 
 Everything the Pi needs is in the repository or installed by the script; nothing has to be copied over by hand. `vsbc gui --fullscreen` fills the screen for a kiosk-style touchscreen. The install script asks whether to start it automatically at login.
 
@@ -243,6 +253,20 @@ Do them in this order the first time:
 
 The command line does the same with `vsbc calibrate load` and `vsbc calibrate travel`. In the Serial Monitor, a single-point load calibration is `TARE`, hang a known weight, `CAL <newtons>`, then `SAVE`.
 
+### Load-cell calibration without the Mega
+
+With the HX711 wired to the Pi, the load cell can be calibrated with no Arduino attached:
+
+```bash
+vsbc calibrate load --no-mega
+```
+
+It asks for the same zero point and known loads as step 3, reading the HX711 directly. The result is kept in `Outputs/pending_load_calibration.json`. The next time the app connects to the Mega (with the load cell read by the Pi), it stores the calibration on the Mega, deletes that file and says so in the warning banner. From then on the Mega holds the calibration, as usual.
+
+- Command line only: the wizard in the Calibrate tab needs the Mega.
+- The overload cutoff (`max_load`) and the travel calibration still need the Mega. Set the cutoff after the calibration has been stored.
+- It is only valid for the HX711 on the Pi, at the gain set in `config.toml`.
+
 ---
 
 ## Running a pull-to-failure test
@@ -279,7 +303,8 @@ Outputs/
 ├── calibration/2026-09-29_150100_load.json   one record per calibration
 ├── logs/vsbc.log                             app log (rotating)
 ├── logs/2026-09-29_15-00-02_serial.log       each connection's serial session
-└── last_position.json                        position saved at the last clean exit
+├── last_position.json                        position saved at the last clean exit
+└── pending_load_calibration.json             only after `calibrate load --no-mega`, until the Mega has it
 ```
 
 `data.csv` columns:
@@ -308,6 +333,7 @@ Every command that talks to the machine accepts `--port` (default: auto-detect),
 | `vsbc terminal` | Serial terminal with a session log (replaces `serial_logger.py`). Sends STOP on exit. |
 | `vsbc test --specimen A1 --rate 5 --max-ext 20 [--area 12.5 --gauge 50]` | Pull-to-failure test without the GUI (e.g. over SSH), with a live text readout. Ctrl+C stops it. |
 | `vsbc calibrate load` / `vsbc calibrate travel` | Calibration with text prompts |
+| `vsbc calibrate load --no-mega` | Load-cell calibration on the Pi alone; stored on the Mega at the next connection |
 | `vsbc analyze <test folder>` | Recalculate a test's summary and plot |
 | `vsbc flash [--port ...] [--compile-only]` | Compile and upload the firmware with arduino-cli |
 | `vsbc ports` | List serial ports |
@@ -430,7 +456,7 @@ Change them, then upload again.
 
 ```bash
 pip install -e ".[gui,dev]"
-pytest                          # 78 tests against the simulator (incl. an offscreen GUI run), ~25 s
+pytest                          # 86 tests against the simulator (incl. an offscreen GUI run), ~25 s
 vsbc gui --sim                  # try GUI changes without hardware
 vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 ```

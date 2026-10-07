@@ -22,6 +22,9 @@ python3 -m venv --system-site-packages "$VENV"
 "$VENV/bin/pip" install -e "$REPO"
 mkdir -p "$BIN"
 ln -sf "$VENV/bin/vsbc" "$BIN/vsbc"
+# ~/.local/bin only gets on the PATH at the next login (and not in every kind of
+# terminal), so also link the command where every shell finds it right away.
+sudo ln -sf "$VENV/bin/vsbc" /usr/local/bin/vsbc
 
 echo "==> Serial port (Mega) and GPIO (load cell) permissions"
 for group in dialout gpio; do
@@ -36,6 +39,9 @@ if ! command -v arduino-cli >/dev/null 2>&1 && [ ! -x "$BIN/arduino-cli" ]; then
     curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR="$BIN" sh
 fi
 CLI="$(command -v arduino-cli || echo "$BIN/arduino-cli")"
+if [ "$CLI" = "$BIN/arduino-cli" ]; then
+    sudo ln -sf "$BIN/arduino-cli" /usr/local/bin/arduino-cli
+fi
 "$CLI" core update-index
 "$CLI" core install arduino:avr
 
@@ -63,8 +69,16 @@ if [ ! -f "$REPO/config.toml" ]; then
 fi
 
 echo
-echo "Done. Next:"
-echo "  1. Log out and back in (serial and GPIO permissions, and ~/.local/bin on the PATH)."
+hash -r
+if command -v vsbc >/dev/null 2>&1 && vsbc --version >/dev/null 2>&1; then
+    echo "Done: the 'vsbc' command is ready ($(vsbc --version))."
+else
+    echo "Done, but the 'vsbc' command is not on the PATH of this terminal."
+    echo "Use the full path instead:  $VENV/bin/vsbc"
+fi
+echo "Next:"
+echo "  1. Log out and back in once: it gives your user permission to use the Mega's"
+echo "     serial port and the GPIO pins."
 echo "  2. Plug in the Mega and upload the firmware:   vsbc flash"
 echo "  3. Check the load cell wired to the Pi:        vsbc loadcell"
 echo "  4. Start the app:                              vsbc"
