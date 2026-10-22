@@ -20,7 +20,7 @@ log_data_lines = false       # also write every data line to the serial session 
 # Where the HX711 load-cell amplifier is wired:
 #   "pi"   = to the Raspberry Pi's GPIO pins (dout_pin / sck_pin below)
 #   "mega" = to the Arduino Mega (D26 / D27)
-source = "pi"
+source = "mega"
 dout_pin = 5                 # Pi GPIO number (BCM) on the HX711 DAT pin: GPIO5 = header pin 29
 sck_pin = 6                  # Pi GPIO number (BCM) on the HX711 CLK pin: GPIO6 = header pin 31
 gain = 128                   # HX711 gain: 128 or 64 (channel A), 32 (channel B)

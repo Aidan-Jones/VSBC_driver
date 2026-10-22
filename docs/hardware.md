@@ -11,8 +11,8 @@ The [README](../README.md) covers setup and use.
 | Ball screw (×2) | 5 mm lead, coupled directly to the motor | 5 mm/rev → 0.0125 mm per step at 400 pulses/rev |
 | Stepper driver (×2) | Stepperonline Full Digital Stepper Driver DM542T, **Version 4.0** | 1.0–4.5 A, 18–50 VDC, opto-isolated PUL/DIR/ENA |
 | Controller | Arduino Mega 2560 | ATmega2560 @ 16 MHz; Timer1 compare interrupt for stepping |
-| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 10 or 80 samples/s (RATE jumper). Wired to the Pi's GPIO pins (default) or to the Mega. |
-| Host | Raspberry Pi 5 | USB to the Mega; reads the load-cell amplifier |
+| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 10 or 80 samples/s (RATE jumper). Wired to the Mega (default) or to the Pi's GPIO pins. |
+| Host | Raspberry Pi 5 | USB to the Mega; reads the load-cell amplifier with `source = "pi"` |
 | Motor power supply | _TODO: voltage / current rating_ | Must be within the DM542T's 18–50 VDC |
 
 ---
@@ -142,9 +142,9 @@ The drivers connect **directly** to the Mega; no transistors are needed. Each dr
 - `A+ / A- / B+ / B-` → motor coil leads (_TODO: confirm colours from the 23HS30-3004S datasheet_)
 - `+Vdc / GND` → motor power supply
 
-### Pi ↔ HX711 ↔ load cell (default)
+### Pi ↔ HX711 ↔ load cell (optional)
 
-The SparkFun HX711 breakout is wired to the Pi's 40-pin header. The Pi reads it and sends every reading to the Mega (`LC <raw>`); the Mega still does the tare, the calibration and the safety stops.
+Set `source = "pi"` under `[loadcell]` in `config.toml`, or start with `--loadcell pi`. The SparkFun HX711 breakout is wired to the Pi's 40-pin header. The Pi reads it and sends every reading to the Mega (`LC <raw>`); the Mega still does the tare, the calibration and the safety stops.
 
 | From | To | Notes |
 |---|---|---|
@@ -161,9 +161,9 @@ The SparkFun HX711 breakout is wired to the Pi's 40-pin header. The Pi reads it 
 - **If the Pi stops sending** (app frozen, HX711 unplugged), the Mega reports "load cell lost" after 0.5 s and ends a running test on its own.
 - The pin numbers are BCM GPIO numbers, not header pin numbers. Any free GPIO works; avoid GPIO2/3 (I2C) and GPIO14/15 (UART).
 
-### Mega ↔ HX711 ↔ load cell (optional)
+### Mega ↔ HX711 ↔ load cell (default)
 
-Set `source = "mega"` under `[loadcell]` in `config.toml`, or start with `--loadcell mega`. This is also what the firmware uses on its own, from the Arduino Serial Monitor.
+This is the default (`source = "mega"` under `[loadcell]` in `config.toml`, or start with `--loadcell mega`). It is also what the firmware uses on its own, from the Arduino Serial Monitor.
 
 | From | To | Notes |
 |---|---|---|
@@ -234,4 +234,4 @@ An earlier prototype stepped one motor straight from the Pi's GPIO with Python `
 - **Timing.** Linux scheduling adds jitter, so a constant rate and synchronised motors are not possible.
 - **Logic levels.** With PUL+/DIR+ tied to 5 V and PUL−/DIR− driven by 3.3 V GPIO, the driver input sees about 1.7 V when the pin is "high". That is outside both the V4.0's low (0–0.5 V) and high (4.5–5 V) ranges.
 
-The Mega does the timing-critical work. The Pi sends commands and, by default, reads the load-cell amplifier. Reading an HX711 from Linux has a timing problem too, but there a late clock pulse can be detected and the reading thrown away (see [Pi ↔ HX711](#pi--hx711--load-cell-default)); a late step pulse cannot be taken back.
+The Mega does the timing-critical work. The Pi sends commands and, with `source = "pi"`, reads the load-cell amplifier. Reading an HX711 from Linux has a timing problem too, but there a late clock pulse can be detected and the reading thrown away (see [Pi ↔ HX711](#pi--hx711--load-cell-optional)); a late step pulse cannot be taken back.

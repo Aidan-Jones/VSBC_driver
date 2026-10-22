@@ -3,7 +3,7 @@
   it for an HX711; a different ADC (NAU7802, ADS1232, ...) only needs another
   .cpp that implements these functions, selected with LOADCELL_TYPE in config.h.
 
-  This is the optional source. By default the Raspberry Pi reads the amplifier
+  This is the default source. Optionally the Raspberry Pi reads the amplifier
   and sends each reading with LC <raw> (SET lc_host 1); tester.cpp then ignores
   this ADC.
 */

@@ -422,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--port", help="serial port, e.g. /dev/ttyACM0 or COM5 (default: auto-detect)")
         sp.add_argument("--sim", action="store_true", help="use the built-in simulator instead of the Mega")
         sp.add_argument("--loadcell", choices=LOADCELL_SOURCES,
-                        help="where the HX711 is wired (default: 'source' in config.toml, normally pi)")
+                        help="where the HX711 is wired (default: 'source' in config.toml, normally mega)")
 
     g = sub.add_parser("gui", help="touchscreen GUI (the default)")
     hardware(g)

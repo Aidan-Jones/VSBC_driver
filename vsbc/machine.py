@@ -2,9 +2,10 @@
 
 `Machine` wraps a `SerialLink` (real Mega or `SimulatedMega`): it does the
 connect handshake, keeps the latest sample, forwards messages to listeners,
-pings the firmware watchdog and offers one method per firmware command. It
-also reads the load-cell amplifier on the Pi's GPIO pins and feeds every
-reading to the Mega (config.loadcell.source = "pi", the default).
+pings the firmware watchdog and offers one method per firmware command. By
+default the Mega reads the load-cell amplifier itself (config.loadcell.source
+= "mega"); with source = "pi" it reads the amplifier on the Pi's GPIO pins
+and feeds every reading to the Mega.
 Units: mm, N, mm/s (use mm_min_to_mm_s for test rates in mm/min).
 """
 

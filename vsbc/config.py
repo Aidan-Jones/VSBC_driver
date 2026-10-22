@@ -32,7 +32,7 @@ class SerialConfig:
 
 @dataclass
 class LoadCellConfig:
-    source: str = "pi"               # "pi": HX711 on the Pi's GPIO pins; "mega": HX711 on the Mega
+    source: str = "mega"             # "pi": HX711 on the Pi's GPIO pins; "mega": HX711 on the Mega
     dout_pin: int = 5                # Pi GPIO (BCM number) wired to the HX711 DAT pin
     sck_pin: int = 6                 # Pi GPIO (BCM number) wired to the HX711 CLK pin
     gain: int = 128                  # HX711 gain: 128 or 64 (channel A), 32 (channel B)

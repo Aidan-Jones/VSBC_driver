@@ -181,7 +181,7 @@ peak load during a `RUN` in the run direction (`nan` for `MOVE`).
 | `break_drop` | 0 | %. Break detection threshold. 0 = off |
 | `break_min` | 0 | N. Peak needed before break detection arms. 0 = off |
 | `watchdog_ms` | 0 | Stop a move if no line arrives for this long. 0 = off. The Python host sets 3000 and pings every 0.5 s. |
-| `lc_host` | 0 | Load-cell source. 0 = the HX711 wired to the Mega. 1 = readings sent by the host with `LC <raw>`. Changing it forgets the current samples (`EVT LOADCELL state=LOST` if the load cell was alive). The Python host sets 1 when it reads the HX711 on the Pi (the default). |
+| `lc_host` | 0 | Load-cell source. 0 = the HX711 wired to the Mega. 1 = readings sent by the host with `LC <raw>`. Changing it forgets the current samples (`EVT LOADCELL state=LOST` if the load cell was alive). The Python host sets 1 when it reads the HX711 on the Pi (`source = "pi"`). |
 
 Safety checks use a median of the last three samples, so one bad sample cannot
 trigger a stop.

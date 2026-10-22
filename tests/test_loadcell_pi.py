@@ -239,8 +239,9 @@ def test_falls_back_to_the_mega_when_gpio_is_unavailable(config, monkeypatch):
         raise LoadCellUnavailable("the lgpio module is not installed")
 
     monkeypatch.setattr(loadcell_pi, "PiHX711", unavailable)
+    assert config.loadcell.source == "mega"          # the default
+    config.loadcell.source = "pi"
     m = Machine(config)
-    assert config.loadcell.source == "pi"            # the default
     # A real port is needed for this path, so drive the private step directly on a simulated link.
     m.connect(sim=True)
     try:
