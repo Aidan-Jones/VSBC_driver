@@ -18,7 +18,7 @@
   Drivers:     2x Stepperonline DM542T V4.0 (one per motor)
   Motors:      2x Stepperonline 23HS30-3004S (1.8 deg, 3.0 A)
   Ball screws: 5 mm lead, coupled directly to the motors
-               -> 400 steps/rev / 5 mm = 0.0125 mm per step
+               -> 3200 steps/rev / 5 mm = 0.0015625 mm per step
 
   Both ball screws move the beam together: every step pulse goes to both
   drivers on the same clock cycle. A trial moves a set distance at a constant
@@ -28,9 +28,9 @@
 
   Driver settings (must be IDENTICAL on both drivers):
     S2 selector: 5V   (factory default is 24V -- must be changed for 5V signals)
-    SW1 OFF, SW2 OFF, SW3 ON  -> 2.37 A peak / 1.69 A RMS
-    SW4 ON                    -> standstill current 90%
-    SW5 OFF, SW6 ON, SW7 ON, SW8 ON -> 400 pulses/rev (matches STEPS_PER_REV)
+    SW1 ON, SW2 OFF, SW3 OFF -> 3.76 A peak / 2.69 A RMS
+    SW4 ON                    -> full current at standstill
+    SW5 ON, SW6 ON, SW7 OFF, SW8 ON -> 3200 pulses/rev (matches STEPS_PER_REV)
 
   Wiring (direct, common-cathode -- no transistors needed):
     D22 (PA0) STEP_A -> Driver A PUL+      Driver A PUL- -> Mega GND
@@ -71,11 +71,11 @@ const uint8_t STEP_MASK = STEP_A | STEP_B;
 const uint8_t DIR_MASK  = DIR_A | DIR_B;
 
 // Must match the microstep DIP switch setting on BOTH drivers -- keep identical.
-const long STEPS_PER_REV = 400;
+const long STEPS_PER_REV = 3200;
 
 // Ball screw lead: linear travel per motor revolution (direct coupling).
 const float SCREW_LEAD_MM = 5.0f;
-const float MM_PER_STEP   = SCREW_LEAD_MM / STEPS_PER_REV;   // 0.0125 mm
+const float MM_PER_STEP   = SCREW_LEAD_MM / STEPS_PER_REV;   // 0.0015625 mm
 
 // Trial defaults, changeable from the Serial Monitor with v and d.
 const float DEFAULT_RATE_MM_S   = 0.5f;
@@ -84,15 +84,15 @@ const float DEFAULT_DISTANCE_MM = 10.0f;
 // Motor speed limit. Trials start at full rate with no ramp, and a stall breaks
 // the constant-rate guarantee, so the motor must start and hold the rate from
 // standstill under load. 23HS30-3004S: 1.89 N*m holding, 4.8 mH, 440 g*cm^2
-// rotor. At the 2.37 A peak driver setting, torque starts to fall above about
-// V / (2 * L * I) full steps/s: ~320 RPM on a 24 V supply, ~630 RPM on 48 V.
+// rotor. At the 3.76 A peak driver setting, torque starts to fall above about
+// V / (2 * L * I) full steps/s: ~200 RPM on a 24 V supply, ~400 RPM on 48 V.
 // 120 RPM stays well below that on any supply in the DM542T range and inside
 // a safe no-ramp start rate, so close to full low-speed torque is available.
 const float MAX_MOTOR_RPM = 120.0f;
 
 // Rate and distance limits.
-const float MIN_RATE_MM_S   = 0.01f;                                  // 0.8 steps/s
-const float MAX_RATE_MM_S   = MAX_MOTOR_RPM / 60.0f * SCREW_LEAD_MM;  // 10 mm/s = 800 steps/s
+const float MIN_RATE_MM_S   = 0.01f;                                  // 6.4 steps/s
+const float MAX_RATE_MM_S   = MAX_MOTOR_RPM / 60.0f * SCREW_LEAD_MM;  // 10 mm/s = 6400 steps/s
 const float MAX_DISTANCE_MM = 100.0f;   // TODO: set to the real beam travel
 
 // DIR level that makes the beam open. Flip if "open" moves the wrong way.

@@ -8,7 +8,7 @@ The [README](../README.md) covers setup and use.
 | Component | Part | Notes |
 |---|---|---|
 | Stepper motor (×2) | Stepperonline 23HS30-3004S | NEMA 23, 1.8°/step (200 full steps/rev), 3.0 A/phase, 1.89 N·m holding, 4.8 mH, 1.13 Ω, 440 g·cm² rotor |
-| Ball screw (×2) | 5 mm lead, coupled directly to the motor | 5 mm/rev → 0.0125 mm per step at 400 pulses/rev |
+| Ball screw (×2) | 5 mm lead, coupled directly to the motor | 5 mm/rev → 0.0015625 mm per step at 3200 pulses/rev |
 | Stepper driver (×2) | Stepperonline Full Digital Stepper Driver DM542T, **Version 4.0** | 1.0–4.5 A, 18–50 VDC, opto-isolated PUL/DIR/ENA |
 | Controller | Arduino Mega 2560 | ATmega2560 @ 16 MHz; Timer1 compare interrupt for stepping |
 | Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 10 or 80 samples/s (RATE jumper). Wired to the Mega (default) or to the Pi's GPIO pins. |
@@ -47,22 +47,24 @@ At power-up the V4.0 driver configures itself to match the connected motor. Conn
 | Switches | Function |
 |---|---|
 | SW1–SW3 | Dynamic (running) current |
-| SW4 | Standstill current: OFF = 50 %, ON = 90 % of the running current. The driver drops to it 0.4 s after the last pulse. |
+| SW4 | Standstill current: OFF = half current, ON = full current (driver label; the V4.0 manual gives 50 % / 90 %). The driver drops to it 0.4 s after the last pulse. |
 | SW5–SW8 | Microstep resolution (pulses/rev) |
+
+On the switch block, **down = ON** (the `ON↓` mark under the switches).
 
 **Required setting. Both drivers must match.**
 
 | SW1 | SW2 | SW3 | SW4 | SW5 | SW6 | SW7 | SW8 |
 |---|---|---|---|---|---|---|---|
-| OFF | OFF | ON | ON | **OFF** | **ON** | **ON** | **ON** |
+| ON | OFF | OFF | ON | **ON** | **ON** | **OFF** | **ON** |
 
-According to the V4.0 tables below, this means:
+According to the tables printed on the driver (below), this means:
 
-- **Current:** 2.37 A peak / 1.69 A RMS. That is below the motor's 3.0 A rating, so torque is reduced but the motor runs cooler.
-- **Standstill:** 90 % of running current.
-- **Microstep:** **400 pulses/rev**, which matches `STEPS_PER_REV = 400` in `config.h`.
+- **Current:** 3.76 A peak / 2.69 A RMS. The RMS value is just under the motor's 3.0 A rating, so the motor gives close to its rated torque but runs warm. Check the motor temperature after long tests.
+- **Standstill:** full current (SW4 ON).
+- **Microstep:** **3200 pulses/rev** (16 microsteps), which matches `STEPS_PER_REV = 3200` in `config.h`.
 
-> The earlier setting ("3–4 ON, the rest OFF", with SW5–8 all OFF) is 25000 pulses/rev. With it, each "revolution" of code turns the motor only about 5.8°. The travel calibration recognises this (measured/commanded ≈ 0.016) and warns instead of calibrating it away.
+> Older settings: 400 pulses/rev (SW5–8 = OFF ON ON ON) moves the crosshead 8× too far with this firmware (measured/commanded ≈ 8); 25000 pulses/rev (SW5–8 all OFF) moves it about 0.13× as far. The travel calibration recognises both and warns instead of calibrating them away.
 
 #### Output current (SW1–SW3)
 
@@ -71,23 +73,23 @@ According to the V4.0 tables below, this means:
 | 1.00 A | 0.71 A | ON | ON | ON |
 | 1.46 A | 1.04 A | OFF | ON | ON |
 | 1.91 A | 1.36 A | ON | OFF | ON |
-| **2.37 A** | **1.69 A** | **OFF** | **OFF** | **ON** ← current |
+| 2.37 A | 1.69 A | OFF | OFF | ON |
 | 2.84 A | 2.03 A | ON | ON | OFF |
 | 3.31 A | 2.36 A | OFF | ON | OFF |
-| 3.76 A | 2.69 A | ON | OFF | OFF |
+| **3.76 A** | **2.69 A** | **ON** | **OFF** | **OFF** ← current |
 | 4.50 A | 3.20 A | OFF | OFF | OFF |
 
-For the 3.0 A 23HS30-3004S, the 3.31 A or 3.76 A peak rows are closer to the motor's rating if more torque is needed.
+For the 3.0 A 23HS30-3004S, 4.50 A peak (3.20 A RMS) is above the motor's rating. If the motors run too hot, drop to 3.31 A or 2.84 A peak.
 
 #### Microstep resolution (SW5–SW8)
 
 | Pulses/rev | Microstep | SW5 | SW6 | SW7 | SW8 |
 |---|---|---|---|---|---|
 | 200 | 1 | ON | ON | ON | ON |
-| **400** | **2** | **OFF** | **ON** | **ON** | **ON** ← required (matches `config.h`) |
+| 400 | 2 | OFF | ON | ON | ON |
 | 800 | 4 | ON | OFF | ON | ON |
 | 1600 | 8 | OFF | OFF | ON | ON |
-| 3200 | 16 | ON | ON | OFF | ON |
+| **3200** | **16** | **ON** | **ON** | **OFF** | **ON** ← required (matches `config.h`) |
 | 6400 | 32 | OFF | ON | OFF | ON |
 | 12800 | 64 | ON | OFF | OFF | ON |
 | 25600 | 128 | OFF | OFF | OFF | ON |
@@ -100,10 +102,10 @@ For the 3.0 A 23HS30-3004S, the 3.31 A or 3.76 A peak rows are closer to the mot
 | 20000 | 100 | ON | OFF | OFF | OFF |
 | 25000 | 125 | OFF | OFF | OFF | OFF ← old setting |
 
-> The rows with SW8 = ON are confirmed from the manual. The rows with SW8 = OFF follow the manual's binary switch pattern. Check both against the label printed on your driver.
+> Both tables match the label printed on the drivers.
 
 > **Rules:**
-> - `STEPS_PER_REV` in `firmware/vsbc_firmware/config.h` **must equal** the SW5–SW8 pulses/rev. To use a finer microstep (e.g. 1600 for smoother motion), change SW5–8 on both drivers **and** `STEPS_PER_REV`, then upload again. The nominal steps/mm and the speed cap follow automatically; redo the travel calibration.
+> - `STEPS_PER_REV` in `firmware/vsbc_firmware/config.h` **must equal** the SW5–SW8 pulses/rev. To use a different microstep, change SW5–8 on both drivers **and** `STEPS_PER_REV` (plus `STEPS_PER_REV` in `vsbc/sim.py` and `FIRMWARE_PULSES_PER_REV` in `vsbc/calibration.py`), then upload again. The nominal steps/mm and the speed cap follow automatically; redo the travel calibration.
 > - **Both drivers must have identical DIP and S2 settings.** The Mega sends both drivers the same pulses at the same instant, so a mismatch makes the two motors move different distances.
 
 ---
@@ -188,8 +190,8 @@ A USB cable (USB-B on the Mega). The Pi sees it as `/dev/ttyACM0` (genuine Mega)
 
 ## Motion maths
 
-- `mm per step = SCREW_LEAD_MM / STEPS_PER_REV = 5 / 400 = 0.0125 mm`, i.e. 80 steps/mm nominal. The calibrated value is the EEPROM setting `steps_per_mm`.
-- `step rate (steps/s) = rate (mm/s) × steps_per_mm`: 0.5 mm/s = 40 steps/s; 5 mm/min = 0.0833 mm/s = 6.67 steps/s.
+- `mm per step = SCREW_LEAD_MM / STEPS_PER_REV = 5 / 3200 = 0.0015625 mm`, i.e. 640 steps/mm nominal. The calibrated value is the EEPROM setting `steps_per_mm`.
+- `step rate (steps/s) = rate (mm/s) × steps_per_mm`: 0.5 mm/s = 320 steps/s; 5 mm/min = 0.0833 mm/s = 53.3 steps/s.
 - `RPM = step rate / pulses_per_rev × 60`.
 - Distances are rounded to whole steps. Every move's reply shows the exact step count and the rate the timer really produces (`actual=`).
 
@@ -197,24 +199,24 @@ The rate is set by the hardware timer, not by the load. Each pulse moves the scr
 
 ### Speed limit: 120 RPM (10 mm/s)
 
-`MAX_MOTOR_RPM = 120` caps every move at 10 mm/s (800 steps/s). A faster request is refused with `ERR ... RANGE`.
+`MAX_MOTOR_RPM = 120` caps every move at 10 mm/s (6400 steps/s). A faster request is refused with `ERR ... RANGE`.
 
 Why 120 RPM for the 23HS30-3004S:
 
-- **Torque roll-off.** Torque stays near its low-speed value until the driver can no longer push full current through the coil inductance each step. That happens at about `V / (2·L·I)` full steps/s. At 2.37 A peak this is about **320 RPM at 24 V** and **630 RPM at 48 V**. 120 RPM is well under that for any supply in the DM542T's 18–50 V range, so close to full torque is available at every allowed rate.
+- **Torque roll-off.** Torque stays near its low-speed value until the driver can no longer push full current through the coil inductance each step. That happens at about `V / (2·L·I)` full steps/s. At 3.76 A peak this is about **200 RPM at 24 V** and **400 RPM at 48 V**. 120 RPM is under that for any supply in the DM542T's 18–50 V range (about 150 RPM at 18 V), so close to full torque is available at every allowed rate.
 - **No-ramp start.** Moves start at full rate from standstill, because a ramp would break the constant rate. The motor has to lock onto the rate within the first step while also accelerating the ball screw's inertia. Low speeds give a comfortable margin for that.
-- The ISR itself can go much faster (20000 steps/s), so the motor, not the code, sets this limit.
+- The ISR itself can go faster (20000 steps/s; 6400 steps/s is 12800 interrupts/s), so the motor, not the code, sets this limit.
 
 With a 36–48 V supply, `MAX_MOTOR_RPM` can be raised. Test under the real load first, and check that the elapsed time still matches distance ÷ rate. The limit is an estimate from the published specs.
 
-The slowest rate is 0.002 mm/s (0.12 mm/min). Timer1's floor is about 0.12 steps/s.
+The slowest rate is 0.002 mm/s (0.12 mm/min, 1.28 steps/s). Timer1's floor is about 0.12 steps/s.
 
 ---
 
 ## How the firmware works
 
 - **Timer1 step engine (`motion.cpp`).** Timer1 (16-bit) runs in CTC mode. For each rate the firmware picks the smallest prescaler (1, 8, 64, 256, 1024) for which `OCR1A = F_CPU / (prescaler × 2 × rate) − 1` fits in 16 bits, and records the rate the timer really produces. Each compare match toggles the selected STEP bits with `PORTA ^= mask`; every falling edge counts as one step. When the step count reaches zero the ISR stops the timer. Timer0 is left alone for `millis()`.
-- **Direction.** DIR is set, then the firmware waits 10 µs (V4.0 minimum 5 µs) before the first pulse. Pulses are high for half the step period: 625 µs at the 800 steps/s maximum, far above the 2.5 µs minimum.
+- **Direction.** DIR is set, then the firmware waits 10 µs (V4.0 minimum 5 µs) before the first pulse. Pulses are high for half the step period: 78 µs at the 6400 steps/s maximum, far above the 2.5 µs minimum.
 - **Load-cell source.** The setting `lc_host` picks where samples come from: 1 = sent by the host as `LC <raw>` lines (the app sets this when it reads the HX711 on the Pi); 0 = the Mega's own HX711 (the state after a reset). The app sets it at every connect, because the Mega does not always reset when the port opens. Everything after that point (tare, calibration, safety checks, data lines) is the same for both.
 - **Non-blocking loop.** `loop()` reads serial commands, polls the HX711, runs the safety checks, reports finished moves and sends data lines. Nothing in it waits for a move to finish, so the load cell is sampled and the safety checks run throughout every move.
 - **HX711 reading (`loadcell_hx711.cpp`).** It reads only when DOUT is low (conversion ready), clocking 25 pulses with interrupts **left on**. Each SCK-high pulse lasts about 5–15 µs even when the Timer1 or serial interrupts preempt it; the HX711 only powers down after 60 µs high. So step timing is untouched, and a reading is never corrupted by the step interrupt. After the 25th pulse DOUT must go high again; if it doesn't, the reading is discarded.

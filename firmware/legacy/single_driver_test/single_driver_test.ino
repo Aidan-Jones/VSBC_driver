@@ -27,13 +27,13 @@
   With only one driver connected, wire it as driver A: D22, D24 and GND.
   The driver that is not selected gets no pulses; its STEP and DIR stay LOW.
 
-  Ball screws: 5 mm lead, direct coupled -> 0.0125 mm per step at 400 steps/rev.
+  Ball screws: 5 mm lead, direct coupled -> 0.0015625 mm per step at 3200 steps/rev.
 
   Serial Monitor: 115200 baud. Commands:
     a / b      select driver A or B
     f / r      one revolution forward / reverse
     t          back-and-forth test (1 rev fwd, 1 rev back) x3
-    s<number>  set step rate for f/r/t in steps/s, e.g. s500 (max 800)
+    s<number>  set step rate for f/r/t in steps/s, e.g. s4000 (max 6400)
     v<mm/s>    set trial displacement rate, e.g. v0.5
     d<mm>      set trial distance, e.g. d20
     o / c      run trial: open / close by the set distance at the set rate
@@ -57,25 +57,25 @@ const uint8_t DIR_B  = _BV(PA3);   // D25
 const uint8_t ALL_MASK = STEP_A | STEP_B | DIR_A | DIR_B;
 
 // Must match the microstep DIP switch setting on the driver under test.
-const long STEPS_PER_REV = 400;
+const long STEPS_PER_REV = 3200;
 
 // Ball screw lead: linear travel per motor revolution (direct coupling).
 const float SCREW_LEAD_MM = 5.0f;
-const float MM_PER_STEP   = SCREW_LEAD_MM / STEPS_PER_REV;   // 0.0125 mm
+const float MM_PER_STEP   = SCREW_LEAD_MM / STEPS_PER_REV;   // 0.0015625 mm
 
-// Default step rate for f/r/t, in steps/sec (500 at 400 pulses/rev = 75 RPM).
-const float DEFAULT_STEP_RATE_HZ = 500.0f;
+// Default step rate for f/r/t, in steps/sec (4000 at 3200 pulses/rev = 75 RPM).
+const float DEFAULT_STEP_RATE_HZ = 4000.0f;
 
 // Motor speed limit -- see dual_stepper_mega.ino for the derivation. Moves
 // start at full rate with no ramp, so this applies to both s and v.
 const float MAX_MOTOR_RPM = 120.0f;
-const float MAX_MOTOR_STEP_RATE_HZ = MAX_MOTOR_RPM / 60.0f * STEPS_PER_REV;  // 800 steps/s
+const float MAX_MOTOR_STEP_RATE_HZ = MAX_MOTOR_RPM / 60.0f * STEPS_PER_REV;  // 6400 steps/s
 
 // Trial defaults and limits -- keep in step with dual_stepper_mega.ino.
 const float DEFAULT_RATE_MM_S   = 0.5f;
 const float DEFAULT_DISTANCE_MM = 10.0f;
-const float MIN_RATE_MM_S   = 0.01f;                                  // 0.8 steps/s
-const float MAX_RATE_MM_S   = MAX_MOTOR_RPM / 60.0f * SCREW_LEAD_MM;  // 10 mm/s = 800 steps/s
+const float MIN_RATE_MM_S   = 0.01f;                                  // 6.4 steps/s
+const float MAX_RATE_MM_S   = MAX_MOTOR_RPM / 60.0f * SCREW_LEAD_MM;  // 10 mm/s = 6400 steps/s
 const float MAX_DISTANCE_MM = 100.0f;   // TODO: set to the real beam travel
 
 // DIR level that makes the beam open. Flip if "open" moves the wrong way.
@@ -380,7 +380,7 @@ void printMenu() {
   Serial.println("  a / b      select driver A (D22/D24) or B (D23/D25)");
   Serial.println("  f / r      one revolution forward / reverse");
   Serial.println("  t          back-and-forth test x3");
-  Serial.print("  s<number>  set f/r/t step rate in steps/s (e.g. s500, max ");
+  Serial.print("  s<number>  set f/r/t step rate in steps/s (e.g. s4000, max ");
   Serial.print(MAX_MOTOR_STEP_RATE_HZ, 0);
   Serial.println(")");
   Serial.print("  v<mm/s>    set trial displacement rate (e.g. v0.5, max ");

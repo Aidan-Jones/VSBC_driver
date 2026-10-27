@@ -218,7 +218,7 @@ class LoadCalibrationDialog(_Dialog):
 class TravelCalibrationDialog(_Dialog):
     def __init__(self, win):
         super().__init__(win, "Travel calibration (steps/mm)")
-        self.old = self.machine.settings.get("steps_per_mm", 80.0)
+        self.old = self.machine.settings.get("steps_per_mm", 640.0)
         self.trials: list[TravelTrial] = []
         self.result_data = None
         self.last_commanded: float | None = None

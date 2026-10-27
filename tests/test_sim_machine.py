@@ -20,7 +20,7 @@ def test_handshake_and_status(machine):
     assert st.state == "IDLE" and st.loadcell_ok and st.calibrated and st.streaming
     assert not st.referenced
     assert any("not referenced" in w for w in machine.warnings)
-    assert machine.settings["steps_per_mm"] == pytest.approx(80.0)
+    assert machine.settings["steps_per_mm"] == pytest.approx(640.0)
 
 
 def test_samples_stream(machine):

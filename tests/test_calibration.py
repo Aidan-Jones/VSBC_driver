@@ -48,21 +48,24 @@ def test_units():
 
 
 def test_travel_correction():
-    r = travel_correction(80.0, [TravelTrial(20.0, 19.8)])
+    r = travel_correction(640.0, [TravelTrial(20.0, 19.8)])
     assert r.ratio == pytest.approx(0.99)
-    assert r.new_steps_per_mm == pytest.approx(80.0 / 0.99)
+    assert r.new_steps_per_mm == pytest.approx(640.0 / 0.99)
     assert r.warnings == []
 
 
 def test_travel_correction_flags_dip_switch_mismatch():
-    # Drivers left at 25000 pulses/rev: 20 mm commanded -> 0.32 mm measured.
-    r = travel_correction(80.0, [TravelTrial(20.0, 0.32)])
+    # Drivers left at the old 400 pulses/rev: 20 mm commanded -> 160 mm measured.
+    r = travel_correction(640.0, [TravelTrial(20.0, 160.0)])
     text = " ".join(r.warnings)
-    assert "DIP" in text and "25000" in text
+    assert "DIP" in text and "400 pulses/rev" in text
+    # Drivers at 25000 pulses/rev: 20 mm commanded -> 2.56 mm measured.
+    r = travel_correction(640.0, [TravelTrial(20.0, 2.56)])
+    assert "25000" in " ".join(r.warnings)
 
 
 def test_travel_correction_flags_inconsistent_trials():
-    r = travel_correction(80.0, [TravelTrial(20.0, 19.8), TravelTrial(20.0, 20.2)])
+    r = travel_correction(640.0, [TravelTrial(20.0, 19.8), TravelTrial(20.0, 20.2)])
     assert any("disagree" in w for w in r.warnings)
 
 

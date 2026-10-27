@@ -488,9 +488,9 @@ class Machine:
         return self.command("RATE", float(mm_s))
 
     def max_rate(self) -> float:
-        """mm/s at the motor speed limit (800 steps/s)."""
-        spm = self.settings.get("steps_per_mm", 80.0)
-        return 800.0 / spm if spm > 0 else 10.0
+        """mm/s at the motor speed limit (6400 steps/s)."""
+        spm = self.settings.get("steps_per_mm", 640.0)
+        return 6400.0 / spm if spm > 0 else 10.0
 
     def _drain_move_end(self) -> None:
         while True:

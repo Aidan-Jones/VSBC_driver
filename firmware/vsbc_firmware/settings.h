@@ -7,7 +7,7 @@
 #include <Arduino.h>
 
 struct Settings {
-  float   steps_per_mm;   // crosshead steps per mm (nominal 80)
+  float   steps_per_mm;   // crosshead steps per mm (nominal 640)
   float   load_scale;     // load-cell counts per newton; 0 = not calibrated
   long    load_offset;    // load-cell counts at zero load (TARE)
   float   max_load;       // N; any move stops when |load| reaches this. 0 = off

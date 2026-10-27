@@ -93,7 +93,7 @@ Any other line, including an unknown one, **stops the move** and gets
   the load cell counts as lost (`EVT LOADCELL state=LOST`, and a `RUN` ends
   with `reason=LOADCELL`).
 - **RATE** sets the crosshead rate for every following move. Range
-  0.002 mm/s up to the motor limit (`max=`, 10 mm/s at 80 steps/mm).
+  0.002 mm/s up to the motor limit (`max=`, 10 mm/s at 640 steps/mm).
   `actual=` is the rate the timer really produces after rounding.
 - **MOVE / GOTO / HOME** move at the set rate. The target is rounded to whole
   steps. A target outside the soft limits `min_pos`..`max_pos` is refused with
@@ -165,7 +165,7 @@ peak load during a `RUN` in the run direction (`nan` for `MOVE`).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `steps_per_mm` | 80 | Crosshead steps per mm (400 steps/rev ÷ 5 mm lead). Range 40–160. |
+| `steps_per_mm` | 640 | Crosshead steps per mm (3200 steps/rev ÷ 5 mm lead). Range 320–1280. |
 | `load_scale` | 0 | Load-cell counts per newton. 0 = not calibrated. Negative is fine. |
 | `load_offset` | 0 | Load-cell counts at zero load |
 | `max_load` | 0 | N. Any move stops when \|load\| reaches this while rising. 0 = off |

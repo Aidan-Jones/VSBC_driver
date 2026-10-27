@@ -77,8 +77,8 @@ The two earlier standalone sketches (`dual_stepper_mega`, `single_driver_test`) 
 | Component | Part | Notes |
 |---|---|---|
 | Stepper motor (×2) | Stepperonline 23HS30-3004S | NEMA 23, 1.8°/step, 3.0 A/phase |
-| Ball screw (×2) | 5 mm lead, direct coupled | 0.0125 mm per step at 400 pulses/rev |
-| Stepper driver (×2) | Stepperonline DM542T **V4.0** | S2 = **5V**, DIP = OFF OFF ON ON **OFF ON ON ON** on both. See [docs/hardware.md](docs/hardware.md). |
+| Ball screw (×2) | 5 mm lead, direct coupled | 0.0015625 mm per step at 3200 pulses/rev |
+| Stepper driver (×2) | Stepperonline DM542T **V4.0** | S2 = **5V**, DIP = ON OFF OFF ON **ON ON OFF ON** on both (3.76 A peak, 3200 pulses/rev). See [docs/hardware.md](docs/hardware.md). |
 | Controller | Arduino Mega 2560 | Real-time stepping, safety stops |
 | Host | Raspberry Pi 5 (Raspberry Pi OS Bookworm or newer, 64-bit, desktop) | Runs `vsbc`; connects to the Mega over USB; reads the load-cell amplifier with `source = "pi"` |
 | Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | Wired to the Mega (default) or to the Pi's GPIO pins |
@@ -393,7 +393,7 @@ The same jobs in `vsbc_firmware`:
 | `h`, `z`, `?` | `h`, `z`, `?` (the same) |
 | `a` / `b` (select a driver) | `MOTORS A` / `MOTORS B` (`MOTORS AB` for both again) |
 | `f` / `r` (one revolution) | `m5` / `m-5` (one revolution = 5 mm) |
-| `s500` (steps/s) | `v6.25` (mm/s = steps/s ÷ 80) |
+| `s4000` (steps/s) | `v6.25` (mm/s = steps/s ÷ 640) |
 | `t` (back and forth ×3) | no single command: repeat `m5` / `m-5` |
 
 ---
@@ -440,9 +440,9 @@ Change them, then upload again.
 
 ## Hardware bring-up checklist
 
-1. **Drivers**: S2 = 5V and DIP = OFF OFF ON ON OFF ON ON ON on **both** drivers. Motor connected before power-up.
+1. **Drivers**: S2 = 5V and DIP = ON OFF OFF ON ON ON OFF ON on **both** drivers. Motor connected before power-up.
 2. **Firmware**: upload from the Arduino IDE or `vsbc flash`. In the Serial Monitor, `?` should print the menu. `STATUS` shows `lc=1` only if an HX711 is wired to the Mega; with the HX711 on the Pi, `lc=0` is expected here. With `lc=0`, `?` says why (no conversions, or readings not answered).
-3. **One motor at a time**, screws uncoupled if possible: `MOTORS A`, `Z`, `V1`, `M5`. Expect 400 steps, 5.0 mm of screw travel in 5.0 s. Then `MOTORS B` and repeat.
+3. **One motor at a time**, screws uncoupled if possible: `MOTORS A`, `Z`, `V1`, `M5`. Expect 3200 steps, 5.0 mm of screw travel in 5.0 s. Then `MOTORS B` and repeat.
 4. **Both motors**: `MOTORS AB`, `M5`. Both screws move together, the same distance and direction. If B turns the wrong way, `SET invert_b 1`, `SAVE`.
 5. **Cancel**: `V0.5`, `M20`, then type `x` + Enter mid-move. It stops at once, and `H` returns to 0.
 6. **Load cell**: `vsbc loadcell`. Expect about 10 or 80 readings per second and counts that change when you press on the load cell. With the HX711 on the Pi, also few discarded readings (a few percent at most).
@@ -478,7 +478,7 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 
 ## Known limitations / TODO
 
-- [ ] **Hardware: set SW5–8 to OFF ON ON ON (400 pulses/rev) on both drivers.** The old all-OFF setting is 25000 pulses/rev; the travel calibration flags it.
+- [ ] **Hardware: set SW5–8 to ON ON OFF ON (3200 pulses/rev) on both drivers.** The older 400 (OFF ON ON ON) and 25000 (all OFF) settings move the wrong distance; the travel calibration flags them.
 - [ ] **Hardware: set S2 to 5V on both drivers.** It ships at 24V.
 - [ ] **Choose the load cell and wire the SparkFun HX711 to the Mega** (VCC and VDD → 5V, DAT → D26, CLK → D27). If possible set the HX711 to 80 samples/s. Put the load cell's capacity in `config.toml`.
 - [ ] **If the HX711 is moved to the Pi, measure its timing on the Pi 5** with `vsbc loadcell`. The reader is tested against a fake GPIO only; the share of discarded readings on the real Pi, with the GUI running, is not known yet.
@@ -486,7 +486,7 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 - [ ] **Try the GUI on the Pi 5** (tested on Windows).
 - [ ] **Set real travel limits and the overload cutoff** after the first calibration.
 - [ ] **Fit a hardware E-stop** that cuts motor power; optionally limit switches (pins in `config.h`).
-- [ ] **Current is below the motor rating.** SW1–3 at OFF OFF ON gives 2.37 A peak vs the motor's 3.0 A. Raise it if you need more torque.
+- [ ] **Check motor temperature.** SW1–3 at ON OFF OFF gives 3.76 A peak / 2.69 A RMS, just under the motor's 3.0 A rating, with full current at standstill (SW4 ON). Lower it if the motors run too hot.
 - [ ] Extension is measured at the crosshead, so it includes frame and grip compliance. A compliance correction or an extensometer would give true specimen strain.
 - [ ] Only pull-to-failure is built in. Cyclic, hold/relaxation and compression tests can follow the same pattern (`RUN` with a negative distance already moves in compression).
 

@@ -9,7 +9,7 @@
 #include <Arduino.h>
 
 #define FIRMWARE_NAME    "vsbc_firmware"
-#define FIRMWARE_VERSION "2.1.1"
+#define FIRMWARE_VERSION "2.2.0"
 #define PROTOCOL_VERSION 2
 
 const unsigned long SERIAL_BAUD = 115200;
@@ -24,21 +24,22 @@ const uint8_t STEP_B = _BV(PA1);   // D23 -> driver B PUL+
 const uint8_t DIR_A  = _BV(PA2);   // D24 -> driver A DIR+
 const uint8_t DIR_B  = _BV(PA3);   // D25 -> driver B DIR+
 
-// Must match the microstep DIP switches (SW5-SW8) on BOTH drivers.
-const long  STEPS_PER_REV = 400;
+// Must match the microstep DIP switches (SW5-SW8) on BOTH drivers
+// (ON ON OFF ON = 3200 pulses/rev).
+const long  STEPS_PER_REV = 3200;
 // Ball-screw lead: linear travel per motor revolution (direct coupling).
 const float SCREW_LEAD_MM = 5.0f;
-// Nominal steps per mm (80). The calibrated value is the setting steps_per_mm.
+// Nominal steps per mm (640). The calibrated value is the setting steps_per_mm.
 const float NOMINAL_STEPS_PER_MM = STEPS_PER_REV / SCREW_LEAD_MM;
 
 // Motor speed limit. Moves start at full rate with no ramp (a ramp would break
 // the constant-rate guarantee), so the motor must start and hold the rate from
-// standstill under load. 23HS30-3004S at the 2.37 A driver setting: torque
-// starts to fall above ~320 RPM on 24 V (~630 RPM on 48 V); 120 RPM keeps close
+// standstill under load. 23HS30-3004S at the 3.76 A driver setting: torque
+// starts to fall above ~200 RPM on 24 V (~400 RPM on 48 V); 120 RPM keeps close
 // to full low-speed torque on any supply in the DM542T range. docs/hardware.md
 // has the full derivation.
 const float MAX_MOTOR_RPM    = 120.0f;
-const float MAX_STEP_RATE_HZ = MAX_MOTOR_RPM / 60.0f * STEPS_PER_REV;   // 800 steps/s
+const float MAX_STEP_RATE_HZ = MAX_MOTOR_RPM / 60.0f * STEPS_PER_REV;   // 6400 steps/s
 
 // Slowest crosshead rate accepted. Timer1 bottoms out near 0.12 steps/s.
 const float MIN_RATE_MM_S     = 0.002f;

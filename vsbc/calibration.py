@@ -26,7 +26,7 @@ G_STANDARD = 9.80665
 # error that is really a DIP-switch mismatch.
 DM542T_PULSES_PER_REV = (200, 400, 800, 1600, 3200, 6400, 12800, 25600,
                          1000, 2000, 4000, 5000, 8000, 10000, 20000, 25000)
-FIRMWARE_PULSES_PER_REV = 400
+FIRMWARE_PULSES_PER_REV = 3200
 
 
 # ------------------------------------------------------------------ load cell --
@@ -214,7 +214,7 @@ def travel_correction(old_steps_per_mm: float, trials: list[TravelTrial]) -> Tra
         if spread > 0.01:
             warnings.append(f"Trials disagree by {spread * 100:.1f} %: check for slip or stalls.")
     new = old_steps_per_mm / ratio
-    lo, hi = 40.0, 160.0   # firmware accepts 0.5x-2x the nominal 80 steps/mm
+    lo, hi = 320.0, 1280.0   # firmware accepts 0.5x-2x the nominal 640 steps/mm
     if not lo <= new <= hi:
         warnings.append(f"{new:.3f} steps/mm is outside what the firmware accepts ({lo:.0f}-{hi:.0f}).")
     return TravelResult(old_steps_per_mm, new, ratio, warnings)
