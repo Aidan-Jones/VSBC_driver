@@ -25,6 +25,7 @@ const unsigned long MIN_SAMPLE_INTERVAL_MS = 5;
 
 unsigned long last_read_ms = 0;
 unsigned long last_sample_ms = 0;
+unsigned long discarded_count = 0;
 bool have_sample = false;
 float rate_hz = 0.0f;
 
@@ -63,7 +64,11 @@ bool poll(long &raw) {
 
   // After the gain pulses the HX711 drives DOUT high until the next
   // conversion. Still low = the chip did not respond: discard the reading.
-  if (digitalRead(HX711_DOUT_PIN) == LOW) return false;
+  // A DOUT stuck low lands here every MIN_SAMPLE_INTERVAL_MS, so the count grows fast.
+  if (digitalRead(HX711_DOUT_PIN) == LOW) {
+    discarded_count++;
+    return false;
+  }
 
   if (value & 0x800000UL) value |= 0xFF000000UL;   // sign-extend 24-bit two's complement
   raw = (long)value;
@@ -86,6 +91,10 @@ bool alive() {
 
 float rateHz() {
   return alive() ? rate_hz : 0.0f;
+}
+
+unsigned long discarded() {
+  return discarded_count;
 }
 
 bool saturated(long raw) {

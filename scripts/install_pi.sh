@@ -63,10 +63,26 @@ if [[ "$answer" =~ ^[Yy] ]]; then
     echo "    Added ~/.config/autostart/vsbc.desktop"
 fi
 
-if [ ! -f "$REPO/config.toml" ]; then
+echo "==> config.toml"
+USER_CONFIG="$HOME/.config/vsbc/config.toml"
+# <repo>/config.toml is read before ~/.config/vsbc/config.toml, so only create
+# it when there is neither: a new one would hide the settings in the other.
+if [ ! -f "$REPO/config.toml" ] && [ ! -f "$USER_CONFIG" ]; then
     cp "$REPO/config.example.toml" "$REPO/config.toml"
     echo "    Created config.toml: set the load cell's capacity_n in it."
 fi
+if [ -f "$REPO/config.toml" ] && [ -f "$USER_CONFIG" ]; then
+    echo "    Both $REPO/config.toml and $USER_CONFIG exist: the app reads only $REPO/config.toml."
+fi
+# The load cell is read through the Mega. Installs before that change created
+# config.toml with source = "pi", and "git pull" never touches config.toml.
+for cfg in "$REPO/config.toml" "$USER_CONFIG"; do
+    [ -f "$cfg" ] || continue
+    if grep -Eq '^[[:space:]]*source[[:space:]]*=[[:space:]]*"pi"' "$cfg"; then
+        sed -i -E 's/^([[:space:]]*source[[:space:]]*=[[:space:]]*)"pi"/\1"mega"/' "$cfg"
+        echo "    $cfg: load-cell source changed from \"pi\" to \"mega\" (the HX711 is wired to the Mega)."
+    fi
+done
 
 echo
 hash -r
@@ -80,6 +96,6 @@ echo "Next:"
 echo "  1. Log out and back in once: it gives your user permission to use the Mega's"
 echo "     serial port and the GPIO pins."
 echo "  2. Plug in the Mega and upload the firmware:   vsbc flash"
-echo "  3. Check the load cell wired to the Pi:        vsbc loadcell"
+echo "  3. Check the load cell (wired to the Mega):    vsbc loadcell"
 echo "  4. Start the app:                              vsbc"
 echo "     (or 'VSBC Tensile Tester' in the desktop menu)"

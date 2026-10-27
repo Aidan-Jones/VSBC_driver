@@ -9,7 +9,7 @@
 #include <Arduino.h>
 
 #define FIRMWARE_NAME    "vsbc_firmware"
-#define FIRMWARE_VERSION "2.1.0"
+#define FIRMWARE_VERSION "2.1.1"
 #define PROTOCOL_VERSION 2
 
 const unsigned long SERIAL_BAUD = 115200;

@@ -397,3 +397,98 @@ def test_unreadable_pending_calibration_is_reported_not_applied(config, sim):
         assert m.settings["load_scale"] == pytest.approx(sim.true_scale)
     finally:
         m.disconnect()
+
+
+# ------------------------------------------- load cell on the Mega (default) --
+
+def test_mega_source_clears_a_leftover_lc_host(config, sim):
+    sim.params["lc_host"] = 1                       # the Mega did not reset after a session fed by the Pi
+    m = Machine(config)
+    m.connect(sim=sim)
+    try:
+        assert m.loadcell_source == "mega"
+        assert m.settings["lc_host"] == 0
+        assert m.command("ID").get("loadcell") == "HX711"
+        assert m.status().loadcell_ok
+        assert not any("not responding" in w for w in m.warnings)
+    finally:
+        m.disconnect()
+
+
+def test_pi_source_without_readings_falls_back_to_the_mega(config, sim):
+    _write_pending(config)
+    reader = SimReader(sim)
+    reader.connected = False                        # GPIO opens, but no HX711 answers on it
+    m = Machine(config, loadcell_reader=reader)
+    m.connect(sim=sim)
+    try:
+        assert m.loadcell_source == "mega" and reader.closed
+        assert m.settings["lc_host"] == 0
+        assert m.status().loadcell_ok
+        assert any("No readings from the HX711 on the Pi" in w and 'source = "mega"' in w for w in m.warnings)
+        assert config.pending_load_file.exists()      # measured on the Pi: not for the Mega's HX711
+    finally:
+        m.disconnect()
+
+
+def test_reconfigure_after_reset_restores_the_pi_as_source(fed, sim):
+    m, _ = fed
+    sim.params["lc_host"] = 0                         # what a reset does
+    assert m.reconfigure_after_reset()["lc_host"] == 1
+    time.sleep(0.2)
+    assert m.status().loadcell_ok
+
+
+def test_reconfigure_after_reset_keeps_the_mega_as_source(machine):
+    assert machine.reconfigure_after_reset()["lc_host"] == 0
+    assert machine.status().loadcell_ok
+
+
+def test_not_responding_says_which_wire_to_check(config):
+    from vsbc.sim import SimulatedMega
+
+    for dout_low, expected in ((False, "DAT (D26) stays high"), (True, "stays low after the clock pulses")):
+        sim = SimulatedMega(loadcell=False)
+        sim.disconnect_loadcell(dout_low=dout_low)
+        m = Machine(config)
+        m.connect(sim=sim)
+        try:
+            problem = [w for w in m.warnings if w.startswith("Load cell not responding")]
+            assert len(problem) == 1 and expected in problem[0]
+            assert "no config file" in problem[0] and 'source = "mega"' in problem[0]
+        finally:
+            m.disconnect()
+
+
+def test_not_responding_with_older_firmware(config):
+    from vsbc.machine import Status
+    from vsbc.protocol import Reply
+
+    status = Status.from_reply(Reply(True, "STATUS", {"lc": "0"}))
+    assert status.loadcell_discarded is None
+    assert "D26 (DAT) / D27 (CLK)" in Machine(config).loadcell_problem(status)
+
+
+def _loadcell_cli(config, *extra):
+    from vsbc import cli
+
+    args = cli.build_parser().parse_args(["loadcell", "--sim", "--seconds", "0.5", *extra])
+    return cli.cmd_loadcell(args, config)
+
+
+def test_loadcell_command_reads_the_mega(config, capsys):
+    assert _loadcell_cli(config) == 0
+    out = capsys.readouterr().out
+    assert 'source = "mega"' in out and "readings in 0.5 s" in out
+
+
+def test_loadcell_command_explains_a_silent_load_cell(config, capsys, monkeypatch):
+    from vsbc import sim as sim_module
+
+    class NoLoadCell(sim_module.SimulatedMega):
+        def __init__(self, **kwargs):
+            super().__init__(loadcell=False, **kwargs)
+
+    monkeypatch.setattr(sim_module, "SimulatedMega", NoLoadCell)
+    assert _loadcell_cli(config) == 1
+    assert "Load cell not responding: the Mega sees no conversions" in capsys.readouterr().out

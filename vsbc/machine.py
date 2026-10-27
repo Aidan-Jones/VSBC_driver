@@ -70,6 +70,8 @@ class Status:
     sample_rate_hz: float
     streaming: bool
     dropped_lines: int
+    loadcell_from_host: bool = False
+    loadcell_discarded: int | None = None   # HX711 readings the Mega threw away; None before firmware 2.1.1
 
     @classmethod
     def from_reply(cls, r: Reply) -> "Status":
@@ -89,6 +91,8 @@ class Status:
             sample_rate_hz=r.number("sps", 0.0),
             streaming=flag("stream"),
             dropped_lines=int(r.number("drops", 0)),
+            loadcell_from_host=flag("lchost"),
+            loadcell_discarded=int(r.number("lcbad")) if "lcbad" in r.fields else None,
         )
 
 
@@ -223,6 +227,7 @@ class Machine:
             self.set("watchdog_ms", self.config.watchdog_ms if watchdog else 0)
             if loadcell:
                 self._start_host_load_cell()
+                self._check_host_load_cell(1.5)
                 self._apply_pending_load_calibration()
             self.stream(stream)
             if stream:
@@ -230,8 +235,7 @@ class Machine:
             self.refresh_settings()
             status = self.status()
             if not status.loadcell_ok:
-                where = "Pi" if self.loadcell_source == "pi" else "Mega"
-                self.warnings.append(f"Load cell not responding (check the HX711 wiring to the {where}).")
+                self.warnings.append(self.loadcell_problem(status))
             elif not status.calibrated:
                 self.warnings.append("Load cell not calibrated.")
             if not status.referenced:
@@ -251,8 +255,9 @@ class Machine:
             self._stop_ping.clear()
             self._ping_thread = threading.Thread(target=self._ping_loop, name="vsbc-ping", daemon=True)
             self._ping_thread.start()
-        log.info("connected to %s: %s %s (protocol %d), load cell read by the %s", port_name, self.info.name,
-                 self.info.version, proto, "Pi" if self.loadcell_source == "pi" else "Mega")
+        log.info("connected to %s: %s %s (protocol %d), load cell read by the %s; config: %s", port_name,
+                 self.info.name, self.info.version, proto, "Pi" if self.loadcell_source == "pi" else "Mega",
+                 self.config_description())
         return self.info
 
     def disconnect(self) -> None:
@@ -287,18 +292,20 @@ class Machine:
 
         self.loadcell_source = "mega"
         reader = self._loadcell_reader
-        if reader is None:
-            lc = self.config.loadcell
-            if lc.source != "pi" or self.sim is not None:
-                return
+        lc = self.config.loadcell
+        if reader is None and lc.source == "pi" and self.sim is None:
             try:
                 reader = PiHX711(lc.dout_pin, lc.sck_pin, lc.gain)
             except LoadCellUnavailable as e:
                 self.warnings.append(
                     f"Cannot read the load cell on the Pi's GPIO pins ({e}). Using the HX711 wired to the Mega instead; "
-                    'set source = "mega" under [loadcell] in config.toml to make that the choice.'
+                    f'set source = "mega" under [loadcell] in {self._config_name()} to make that the choice.'
                 )
-                return
+        if reader is None:
+            # A reset clears lc_host, but the Mega does not always reset when the port
+            # opens: a 1 left over from an earlier session would hide its own HX711.
+            self.set("lc_host", 0)
+            return
         link = self.link
         try:
             self.set("lc_host", 1)
@@ -308,6 +315,59 @@ class Machine:
         self._feeder = LoadCellFeeder(reader, lambda raw: link.write_line(f"LC {raw}", quiet=True))
         self._feeder.start()
         self.loadcell_source = "pi"
+
+    def _check_host_load_cell(self, timeout: float) -> None:
+        """Fall back to the HX711 wired to the Mega when the Pi's reader delivers nothing."""
+        feeder = self._feeder
+        if feeder is None:
+            return
+        deadline = time.monotonic() + timeout
+        while feeder.samples == 0 and feeder.error is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if feeder.samples > 0:
+            return
+        self._stop_host_load_cell()
+        self.set("lc_host", 0)
+        self.loadcell_source = "mega"
+        lc = self.config.loadcell
+        self.warnings.append(
+            f"No readings from the HX711 on the Pi's GPIO{lc.dout_pin} / GPIO{lc.sck_pin} pins: using the HX711 "
+            f'wired to the Mega instead. Set source = "mega" under [loadcell] in {self._config_name()} '
+            "if that is where it is wired."
+        )
+        log.warning("no readings from the HX711 on the Pi: falling back to the Mega's HX711")
+
+    def _config_name(self) -> str:
+        return str(self.config.source) if self.config.source else "config.toml"
+
+    def config_description(self) -> str:
+        """Which config file was read and the load-cell source it selects."""
+        where = self.config.source or "no config file, built-in defaults"
+        return f'{where}, source = "{self.config.loadcell.source}"'
+
+    def loadcell_problem(self, status: Status) -> str:
+        """Why the load cell is not responding, and what to check."""
+        if self.loadcell_source == "pi":
+            lc = self.config.loadcell
+            why = (f"no readings from the HX711 on the Pi's GPIO{lc.dout_pin} (DAT) / GPIO{lc.sck_pin} (CLK): "
+                   "check its wiring (VDD to 3.3V, VCC to 5V, GND)")
+        elif status.loadcell_from_host:
+            why = "the Mega is waiting for readings from the Pi (lc_host = 1)"
+        elif status.loadcell_discarded is None:   # firmware before 2.1.1 does not say more
+            why = "the Mega gets no readings from the HX711 on D26 (DAT) / D27 (CLK): check its wiring (VCC and VDD to 5V, GND)"
+        elif status.loadcell_discarded == 0:
+            why = ("the Mega sees no conversions, DAT (D26) stays high: check the HX711's VCC and VDD (5V), "
+                   "GND, and DAT on D26")
+        else:
+            why = "DAT (D26) stays low after the clock pulses: check CLK on D27 and VDD (5V)"
+        return f"Load cell not responding: {why}. (Config: {self.config_description()}.)"
+
+    def reconfigure_after_reset(self) -> dict[str, float]:
+        """The Mega reset while connected: it forgot the watchdog, the stream and the load-cell source."""
+        self.set("watchdog_ms", self.config.watchdog_ms)
+        self.set("lc_host", 1 if self.loadcell_source == "pi" else 0)
+        self.stream(True)
+        return self.refresh_settings()
 
     def _apply_pending_load_calibration(self) -> None:
         """Store a calibration made without the Mega (`vsbc calibrate load --no-mega`).

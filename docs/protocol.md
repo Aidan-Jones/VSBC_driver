@@ -61,8 +61,8 @@ Any other line, including an unknown one, **stops the move** and gets
 | Command | Alias | Any time | Reply |
 |---|---|---|---|
 | `HELP` | `?` | yes | `#` menu lines, then `OK HELP` |
-| `ID` | | yes | `OK ID name=vsbc_firmware ver=2.1.0 proto=2 loadcell=HX711` (`loadcell=HOST` when `lc_host` = 1) |
-| `STATUS` | `S` | yes | `OK STATUS state= pos= load= raw= rate= motors= ref= lc= cal= sps= stream= drops= t=` |
+| `ID` | | yes | `OK ID name=vsbc_firmware ver=2.1.1 proto=2 loadcell=HX711` (`loadcell=HOST` when `lc_host` = 1) |
+| `STATUS` | `S` | yes | `OK STATUS state= pos= load= raw= rate= motors= ref= lc= cal= sps= stream= drops= lchost= lcbad= t=` (`lchost` = the `lc_host` setting; `lcbad` = HX711 readings thrown away because DOUT stayed low after the clock pulses; both from 2.1.1) |
 | `GET` | | yes | `OK GET` followed by every setting as `key=value` |
 | `PING` | | yes | `OK PING` (resets the host watchdog, like any line) |
 | `STREAM ON\|OFF` | | yes | `OK STREAM on=1` |
@@ -181,7 +181,7 @@ peak load during a `RUN` in the run direction (`nan` for `MOVE`).
 | `break_drop` | 0 | %. Break detection threshold. 0 = off |
 | `break_min` | 0 | N. Peak needed before break detection arms. 0 = off |
 | `watchdog_ms` | 0 | Stop a move if no line arrives for this long. 0 = off. The Python host sets 3000 and pings every 0.5 s. |
-| `lc_host` | 0 | Load-cell source. 0 = the HX711 wired to the Mega. 1 = readings sent by the host with `LC <raw>`. Changing it forgets the current samples (`EVT LOADCELL state=LOST` if the load cell was alive). The Python host sets 1 when it reads the HX711 on the Pi (`source = "pi"`). |
+| `lc_host` | 0 | Load-cell source. 0 = the HX711 wired to the Mega. 1 = readings sent by the host with `LC <raw>`. Changing it forgets the current samples (`EVT LOADCELL state=LOST` if the load cell was alive); setting the value it already has changes nothing. The Python host sets it at every connect: 1 when it reads the HX711 on the Pi (`source = "pi"`), otherwise 0. |
 
 Safety checks use a median of the last three samples, so one bad sample cannot
 trigger a stop.
@@ -189,7 +189,7 @@ trigger a stop.
 ## Example session
 
 ```
-EVT READY name=vsbc_firmware ver=2.1.0 proto=2
+EVT READY name=vsbc_firmware ver=2.1.1 proto=2
 > SET lc_host 1
 OK SET lc_host=1
 > LC 84310

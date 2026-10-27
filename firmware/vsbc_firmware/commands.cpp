@@ -150,7 +150,14 @@ void cmdHelp(const Command &c, uint8_t, char **) {
 
   Serial.print(F("# Load cell: "));
   if (!tester::loadCellAlive()) {
-    Serial.println(F("not responding"));
+    Serial.print(F("not responding: "));
+    if (params.lc_host) {
+      Serial.println(F("waiting for LC readings from the host (SET lc_host 0 to use the HX711 on D26/D27)"));
+    } else if (loadcell::discarded() == 0) {
+      Serial.println(F("no conversions, DAT (D26) stays high: check the HX711's VCC/VDD (5V), GND and DAT on D26"));
+    } else {
+      Serial.println(F("DAT (D26) stays low after the clock pulses: check CLK on D27 and VDD (5V)"));
+    }
   } else {
     if (loadCalibrated()) {
       Serial.print(tester::load(), 3);
@@ -188,6 +195,8 @@ void cmdStatus(const Command &c, uint8_t, char **) {
   kvf(F("sps"), tester::sampleRateHz(), 1);
   kvl(F("stream"), tester::streaming() ? 1 : 0);
   kvu(F("drops"), tester::droppedLines());
+  kvl(F("lchost"), params.lc_host);
+  kvu(F("lcbad"), loadcell::discarded());
   kvu(F("t"), millis());
   Serial.println();
 }
@@ -391,6 +400,7 @@ void cmdSet(const Command &c, uint8_t argc, char **argv) {
     err(c, F("ARG"), F("usage: SET <key> <value> (GET lists the keys)"));
     return;
   }
+  uint8_t old_lc_host = params.lc_host;
   switch (settingsSet(argv[0], argv[1])) {
     case SET_OK:
       break;
@@ -405,7 +415,8 @@ void cmdSet(const Command &c, uint8_t argc, char **argv) {
       return;
   }
   if (strcasecmp(argv[0], "steps_per_mm") == 0) reapplyRate();
-  if (strcasecmp(argv[0], "lc_host") == 0) tester::sourceChanged();
+  // The host sets lc_host at every connect: only a real change forgets the samples.
+  if (params.lc_host != old_lc_host) tester::sourceChanged();
   ok(c);
   settingsPrintKey(argv[0], Serial);
   Serial.println();

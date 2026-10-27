@@ -148,6 +148,7 @@ class SimulatedMega:
         self.lead_error = lead_error          # real travel / nominal travel
         self.external_load_n = 0.0
         self.loadcell_connected = loadcell
+        self.dout_stuck_low = False           # disconnected HX711 whose DOUT reads low (see disconnect_loadcell)
         self._specimen_template = specimen or Specimen()
         self.specimen = replace(self._specimen_template)
         self.mount_mm: float | None = None    # gripped at the first RUN
@@ -165,6 +166,7 @@ class SimulatedMega:
         self.referenced = False
         self.move: dict | None = None
         self.last_raw = 0
+        self.lc_discarded = 0                 # loadcell::discarded(): readings with DOUT still low
         self.last_load = NAN
         self.filt_load = NAN
         self.hist: list[int] = []
@@ -237,13 +239,17 @@ class SimulatedMega:
         with self._lock:
             return self._read_adc(self._now())
 
-    def disconnect_loadcell(self) -> None:
+    def disconnect_loadcell(self, dout_low: bool = False) -> None:
+        """No conversions arrive. dout_low=True: DOUT reads low and every reading is discarded
+        (CLK or VDD missing); otherwise DOUT stays high (unpowered, or DAT not connected)."""
         with self._lock:
             self.loadcell_connected = False
+            self.dout_stuck_low = dout_low
 
     def connect_loadcell(self) -> None:
         with self._lock:
             self.loadcell_connected = True
+            self.dout_stuck_low = False
 
     # --------------------------------------------------------------- helpers --
     def _now(self) -> float:
@@ -335,8 +341,11 @@ class SimulatedMega:
                     if now >= self._boot_at:
                         self._boot()
                     continue
-                if self.loadcell_connected and not self.params["lc_host"]:
-                    self._on_sample(self._read_adc(now), now)
+                if not self.params["lc_host"]:
+                    if self.loadcell_connected:
+                        self._on_sample(self._read_adc(now), now)
+                    elif self.dout_stuck_low:
+                        self.lc_discarded += 1
                 self._check_loadcell(now)
                 self._check_watchdog(now)
                 self._service_move(now)
@@ -646,9 +655,18 @@ class SimulatedMega:
             f"VSBC tensile tester firmware {FIRMWARE_VERSION} (simulator)",
             "Commands: RATE MOVE GOTO HOME RUN STOP ZERO TARE CAL STATUS GET SET SAVE DEFAULTS STREAM MOTORS LC ID PING HELP",
             "Data: D <t_ms> <pos_mm> <load_N> <raw> <I|M|R>",
+            f"Load cell: {'OK' if self.lc_alive else 'not responding: ' + self.loadcell_reason()}",
         ):
             self._emit(f"# {text}")
         self._emit(f"OK {name}")
+
+    def loadcell_reason(self) -> str:
+        """Why the load cell is not responding, as HELP prints it."""
+        if self.params["lc_host"]:
+            return "waiting for LC readings from the host (SET lc_host 0 to use the HX711 on D26/D27)"
+        if self.lc_discarded == 0:
+            return "no conversions, DAT (D26) stays high: check the HX711's VCC/VDD (5V), GND and DAT on D26"
+        return "DAT (D26) stays low after the clock pulses: check CLK on D27 and VDD (5V)"
 
     def _cmd_id(self, name, args):
         self._emit(f"OK {name} name={FIRMWARE_NAME} ver={FIRMWARE_VERSION} proto={PROTOCOL_VERSION} "
@@ -663,7 +681,7 @@ class SimulatedMega:
             f"load={fmt(self.last_load if self.lc_alive else NAN, 3)} raw={self.last_raw if self.lc_alive else 0} "
             f"rate={self.rate:.4f} motors={motors} ref={int(self.referenced)} lc={int(self.lc_alive)} "
             f"cal={int(self._calibrated())} sps={sps:.1f} stream={int(self.stream)} drops=0 "
-            f"t={int((now - self._t0) * 1000)}"
+            f"lchost={int(self.params['lc_host'])} lcbad={self.lc_discarded} t={int((now - self._t0) * 1000)}"
         )
 
     def _format_setting(self, key: str) -> str:
@@ -841,10 +859,12 @@ class SimulatedMega:
             self._emit(f"ERR {name} RANGE value out of range")
             return
         value = lround(v) if key in INT_KEYS else v
-        (self.settings if saved else self.params)[key] = value
+        store = self.settings if saved else self.params
+        changed = store[key] != value
+        store[key] = value
         if key == "steps_per_mm":
             self._reapply_rate()
-        if key == "lc_host":
+        if key == "lc_host" and changed:
             self._source_changed()
         self._emit(f"OK {name} {self._format_setting(key)}")
 

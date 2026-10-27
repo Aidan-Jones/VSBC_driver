@@ -9,7 +9,7 @@
     vsbc analyze <folder>     recompute a test's summary and plot
     vsbc flash                compile + upload the firmware (arduino-cli)
     vsbc ports                list serial ports
-    vsbc loadcell             check the HX711 wired to the Pi's GPIO pins
+    vsbc loadcell             check the load cell (on the Mega, or the Pi with source = "pi")
 
 Add --sim to any hardware command to use the built-in simulator.
 """
@@ -374,7 +374,54 @@ def cmd_flash(args, cfg: Config) -> int:
 
 
 def cmd_loadcell(args, cfg: Config) -> int:
-    """Bring-up check of the HX711 on the Pi's GPIO pins. The Mega is not used."""
+    """Bring-up check of the load cell, wherever config.toml says it is wired."""
+    where = cfg.source or "no config file, built-in defaults"
+    print(f'Config: {where}, source = "{cfg.loadcell.source}"')
+    if cfg.loadcell.source == "pi" and not args.sim:
+        return _loadcell_check_pi(args, cfg)
+    return _loadcell_check_mega(args, cfg)
+
+
+def _loadcell_check_mega(args, cfg: Config) -> int:
+    """Raw counts from the HX711 wired to the Mega (D26 / D27)."""
+    from vsbc.protocol import Sample
+
+    m = Machine(cfg)
+    m.connect(args.port, sim=args.sim)
+    try:
+        for warning in m.warnings:   # "not responding" is the conclusion below; the position does not matter here
+            if not warning.startswith("Load cell not responding") and "referenced" not in warning:
+                print(f"Warning: {warning}")
+        print(f"Mega on {m.port}: {m.info.name} {m.info.version}, load cell source {m.command('ID').get('loadcell', '?')}. "
+              f"Raw counts for {args.seconds:g} s:")
+        samples = []
+        last_print = [0.0]
+
+        def on_sample(msg):
+            if isinstance(msg, Sample) and msg.raw != 0:
+                samples.append(msg.raw)
+                now = time.monotonic()
+                if now - last_print[0] >= 0.25:
+                    last_print[0] = now
+                    print(f"  {msg.raw:9d}", flush=True)
+
+        m.add_listener(on_sample)
+        try:
+            time.sleep(args.seconds)
+        finally:
+            m.remove_listener(on_sample)
+        status = m.status()
+        if not samples or not status.loadcell_ok:
+            print(m.loadcell_problem(status))
+            return 1
+        print(f"{len(samples)} readings in {args.seconds:g} s; the Mega measures {status.sample_rate_hz:.1f} per second.")
+        return 0
+    finally:
+        m.disconnect()
+
+
+def _loadcell_check_pi(args, cfg: Config) -> int:
+    """The HX711 on the Pi's GPIO pins. The Mega is not used."""
     from vsbc.loadcell_pi import LoadCellUnavailable, PiHX711
 
     lc = cfg.loadcell
@@ -468,7 +515,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("ports", help="list serial ports")
 
-    lc = sub.add_parser("loadcell", help="check the HX711 wired to the Pi's GPIO pins (raw counts, sample rate)")
+    lc = sub.add_parser("loadcell", help="check the load cell (raw counts, sample rate) where config.toml says it is wired")
+    hardware(lc)
     lc.add_argument("--seconds", type=float, default=5.0, help="how long to read")
     return p
 

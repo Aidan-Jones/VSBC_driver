@@ -281,7 +281,9 @@ class MainWindow(QtWidgets.QMainWindow):
             if ev.fields.get("state") == "LOST":
                 self._add_warning("Load cell stopped responding.")
             else:
-                self._remove_warnings("Load cell")
+                # Not every "Load cell" warning: "Load cell not calibrated." still applies.
+                self._remove_warnings("Load cell not responding")
+                self._remove_warnings("Load cell stopped responding")
         elif ev.name == "OVERLOAD":
             self.status(f"Overload: {ev.number('load'):.1f} N. Back the load off.")
         elif ev.name == "READY":
@@ -290,16 +292,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 # stream/watchdog settings and its position.
                 self.console.note("The Mega reset.")
                 self._add_warning("The Mega reset: set the position reference again (Jog tab).")
-                self.run_async(self._reconfigure_after_reset, self.calibrate_panel.show_settings, busy=False)
+                self.run_async(self.machine.reconfigure_after_reset, self.calibrate_panel.show_settings, busy=False)
         elif ev.name == "DISCONNECTED":
             self._add_warning(f"Connection lost: {ev.fields.get('error', '')}")
             self.run_async(self.machine.disconnect, lambda _r: self.on_disconnected(),
                            lambda _e: self.on_disconnected(), busy=False)
-
-    def _reconfigure_after_reset(self) -> dict:
-        self.machine.set("watchdog_ms", self.config.watchdog_ms)
-        self.machine.stream(True)
-        return self.machine.refresh_settings()
 
     # ------------------------------------------------------------ connection --
     def refresh_ports(self) -> None:

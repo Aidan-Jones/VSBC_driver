@@ -23,6 +23,10 @@ bool alive();
 // Measured sample rate in Hz (0 until two samples have arrived).
 float rateHz();
 
+// Readings thrown away because the ADC did not answer the clock pulses
+// (HX711: DOUT still low afterwards). Grows quickly while DOUT is stuck low.
+unsigned long discarded();
+
 // True if `raw` is at the ADC's full-scale limit (load beyond range).
 bool saturated(long raw);
 

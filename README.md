@@ -114,7 +114,8 @@ Load cell, **wired to the Raspberry Pi (optional)**:
 - **VDD must go to 3.3V, not 5V.** VDD sets the voltage on DAT, and the Pi's GPIO pins are damaged by 5 V.
 - Select it with `source = "pi"` under `[loadcell]` in `config.toml`, or for one run with `--loadcell pi` (for example `vsbc gui --loadcell pi`).
 - The pins are set under `[loadcell]` in `config.toml` (`dout_pin`, `sck_pin`, as GPIO numbers).
-- `vsbc loadcell` reads the amplifier for 5 s and prints the raw counts, the sample rate and the share of readings it discarded. Run it before anything else; it does not need the Mega.
+- With `source = "pi"`, `vsbc loadcell` reads the amplifier for 5 s and prints the raw counts, the sample rate and the share of readings it discarded. Run it before anything else; it does not need the Mega.
+- If the Pi gets no readings at all when the app connects, the app switches to the HX711 wired to the Mega and says so in a warning.
 - The Pi only reads the amplifier. It sends every reading to the Mega, which still does the tare, the calibration and the safety stops. [docs/hardware.md](docs/hardware.md) explains the timing check that discards a reading.
 
 Load cell, **wired to the Mega (default)**:
@@ -129,6 +130,7 @@ Load cell, **wired to the Mega (default)**:
 
 - This is the default (`source = "mega"` under `[loadcell]` in `config.toml`, or for one run `--loadcell mega`).
 - The pins are set in [`config.h`](firmware/vsbc_firmware/config.h) (`HX711_DOUT_PIN`, `HX711_SCK_PIN`).
+- `vsbc loadcell` connects to the Mega and prints the raw counts for 5 s. If none arrive, it says which wire to check: no conversions at all (DAT stays high: power, GND or DAT) or readings the HX711 did not answer (DAT stays low: CLK or VDD). `?` in the Serial Monitor prints the same reason.
 - This is the wiring to use without the Pi (Arduino IDE Serial Monitor only), and on a PC: there the app cannot reach GPIO pins, so with `source = "pi"` it says so in a warning and uses the Mega's HX711.
 
 Both wirings:
@@ -162,7 +164,7 @@ Starting from a Pi with only Raspberry Pi OS installed and an internet connectio
 
    ```bash
    vsbc flash                     # compile + upload the firmware to the Mega
-   vsbc loadcell                  # check the HX711 wired to the Pi
+   vsbc loadcell                  # check the load cell (wired to the Mega)
    vsbc                           # start the GUI (also in the desktop menu as "VSBC Tensile Tester")
    ```
 
@@ -207,7 +209,7 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ [port ▼] [⟳] [Disconnect]   /dev/ttyACM0 · vsbc_firmware 2.1.0     [STOP] │
+│ [port ▼] [⟳] [Disconnect]   /dev/ttyACM0 · vsbc_firmware 2.1.1     [STOP] │
 │  LOAD          POSITION          EXTENSION          STATE                 │
 │  123.45 N      12.3450 mm        2.3450 mm          TEST                  │
 ├──────────────────────────────────────────┬────────────────────────────────┤
@@ -338,7 +340,7 @@ Every command that talks to the machine accepts `--port` (default: auto-detect),
 | `vsbc analyze <test folder>` | Recalculate a test's summary and plot |
 | `vsbc flash [--port ...] [--compile-only]` | Compile and upload the firmware with arduino-cli |
 | `vsbc ports` | List serial ports |
-| `vsbc loadcell [--seconds 5]` | Check the HX711 wired to the Pi: raw counts, sample rate, discarded readings. Does not use the Mega. |
+| `vsbc loadcell [--seconds 5]` | Check the load cell where `config.toml` says it is wired: raw counts and sample rate from the Mega (default), and why it is not responding if so; with `source = "pi"`, the HX711 on the Pi's GPIO pins (discarded readings too, no Mega needed). It first prints which config file it read. |
 
 `vsbc --help` and `vsbc <command> --help` list all options. `python -m vsbc ...` works too.
 
@@ -439,11 +441,11 @@ Change them, then upload again.
 ## Hardware bring-up checklist
 
 1. **Drivers**: S2 = 5V and DIP = OFF OFF ON ON OFF ON ON ON on **both** drivers. Motor connected before power-up.
-2. **Firmware**: upload from the Arduino IDE or `vsbc flash`. In the Serial Monitor, `?` should print the menu. `STATUS` shows `lc=1` only if an HX711 is wired to the Mega; with the HX711 on the Pi, `lc=0` is expected here.
+2. **Firmware**: upload from the Arduino IDE or `vsbc flash`. In the Serial Monitor, `?` should print the menu. `STATUS` shows `lc=1` only if an HX711 is wired to the Mega; with the HX711 on the Pi, `lc=0` is expected here. With `lc=0`, `?` says why (no conversions, or readings not answered).
 3. **One motor at a time**, screws uncoupled if possible: `MOTORS A`, `Z`, `V1`, `M5`. Expect 400 steps, 5.0 mm of screw travel in 5.0 s. Then `MOTORS B` and repeat.
 4. **Both motors**: `MOTORS AB`, `M5`. Both screws move together, the same distance and direction. If B turns the wrong way, `SET invert_b 1`, `SAVE`.
 5. **Cancel**: `V0.5`, `M20`, then type `x` + Enter mid-move. It stops at once, and `H` returns to 0.
-6. **Load cell on the Pi**: `vsbc loadcell`. Expect about 10 or 80 readings per second, counts that change when you press on the load cell, and few discarded readings (a few percent at most).
+6. **Load cell**: `vsbc loadcell`. Expect about 10 or 80 readings per second and counts that change when you press on the load cell. With the HX711 on the Pi, also few discarded readings (a few percent at most).
 7. **App**: on the Pi, run `vsbc`, connect, then do the calibration steps in [Calibration](#calibration) in order.
 8. **Safety tests**, with a low `max_load`:
    - press on the load cell during a jog: `OVERLOAD` stop;
