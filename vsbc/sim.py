@@ -251,6 +251,29 @@ class SimulatedMega:
             self.loadcell_connected = True
             self.dout_stuck_low = False
 
+    def reset(self) -> None:
+        """Reset button / brown-out: everything not in EEPROM is forgotten, then EVT READY again."""
+        with self._lock:
+            self.settings = dict(self.eeprom)
+            self.params = {k: v[0] for k, v in SETTING_KEYS.items() if not v[4]}
+            self.rate = DEFAULT_RATE_MM_S
+            self.stream = False
+            self.motor_mask = 3
+            self.pos_steps = [0, 0]
+            self.referenced = False
+            self.move = None
+            self.last_raw = 0
+            self.last_load = NAN
+            self.filt_load = NAN
+            self.hist = []
+            self.lc_alive = False
+            self.last_sample_t = None
+            self.host_rate_hz = 0.0
+            self.avg = None
+            self._rx = ""
+            self.booted = False
+            self._boot_at = self._now()
+
     # --------------------------------------------------------------- helpers --
     def _now(self) -> float:
         return time.monotonic()

@@ -70,6 +70,26 @@ def test_operator_stop_keeps_data(machine, config, sim):
     assert result.summary.n_samples > 10
 
 
+def test_mega_reset_during_test_aborts(machine, config, sim):
+    from vsbc.sim import Specimen
+
+    machine.zero()
+    sim.remount_specimen(Specimen(extension_at_peak_mm=40.0, break_extension_mm=45.0))
+    runner = PullTestRunner(machine, _spec(rate_mm_min=60.0, max_extension_mm=5.0), config)
+    box = {}
+    worker = threading.Thread(target=lambda: box.setdefault("r", runner.run()))
+    worker.start()
+    time.sleep(0.5)
+    sim.reset()          # no MOVE_END will ever come
+    worker.join(5)
+    assert not worker.is_alive()
+    result = box["r"]
+    assert result.aborted and "reset" in result.error
+    assert result.summary.n_samples > 5
+    meta = json.loads((result.folder / "meta.json").read_text())
+    assert meta["status"] == "aborted"
+
+
 def test_preflight_lists_problems(machine, config):
     runner = PullTestRunner(machine, _spec(specimen_id=" ", rate_mm_min=10000.0, max_extension_mm=500.0), config)
     with pytest.raises(PreflightError) as e:

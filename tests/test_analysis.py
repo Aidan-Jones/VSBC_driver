@@ -48,6 +48,24 @@ def test_break_needs_minimum_peak():
     assert find_break(noise, 40, 1) == 1
 
 
+def test_tare_noise_is_not_a_break_without_min_peak():
+    t, e, f = _curve()
+    noise = np.array([0.02, -0.01, 0.03, -0.02, 0.01, -0.03])
+    load = np.concatenate([noise, f])
+    ext = np.concatenate([np.zeros(len(noise)), e])
+    i = find_break(load, 40, 0.0)
+    assert i is not None and ext[i] == pytest.approx(1.6, abs=0.01)
+
+
+def test_one_low_sample_is_not_a_break():
+    assert find_break(np.array([0.0, 10, 20, 5, 20, 30]), 40, 5) is None
+
+
+def test_break_detection_off():
+    t, e, f = _curve()
+    assert not analyze(t, e, f, break_drop_pct=0, break_min_n=5).break_detected
+
+
 def test_handles_nan_and_empty():
     s = analyze([0, 1], [0, 1], [float("nan"), float("nan")])
     assert s.n_samples == 2 and not s.break_detected

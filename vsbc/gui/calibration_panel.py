@@ -3,9 +3,13 @@ wizards, the direction check, travel limits and the overload cutoff."""
 
 from __future__ import annotations
 
+import logging
+
 from vsbc.calibration import latest_record
 from vsbc.gui.common import QtWidgets, button, fmt
 from vsbc.gui.panels import Panel
+
+log = logging.getLogger(__name__)
 
 
 class CalibratePanel(Panel):
@@ -129,19 +133,25 @@ class CalibratePanel(Panel):
 
         def move_b():
             self.machine.select_motors("B")
-            return self.machine.move_and_wait(1.0, rate_mm_s=rate)
+            try:
+                return self.machine.move_and_wait(1.0, rate_mm_s=rate)
+            except BaseException:
+                self._select_both()   # never leave the Mega pulsing one screw (Jog would rack the crosshead)
+                raise
 
         def moved(_end):
             same = self.win.ask("Motor B", "Did motor B's screw move in the tension direction?")
             flip = None if same else (0 if self.machine.settings.get("invert_b") else 1)
 
             def finish():
-                if flip is not None:
-                    self.machine.set("invert_b", flip)
-                    self.machine.save()
-                # Back to the start: -1 mm, or +1 mm once B's direction has been flipped.
-                self.machine.move_and_wait(-1.0 if flip is None else 1.0, rate_mm_s=rate)
-                self.machine.select_motors("AB")
+                try:
+                    if flip is not None:
+                        self.machine.set("invert_b", flip)
+                        self.machine.save()
+                    # Back to the start: -1 mm, or +1 mm once B's direction has been flipped.
+                    self.machine.move_and_wait(-1.0 if flip is None else 1.0, rate_mm_s=rate)
+                finally:
+                    self._select_both()
                 return self.machine.refresh_settings()
 
             def done(settings):
@@ -152,6 +162,14 @@ class CalibratePanel(Panel):
             self.win.run_async(finish, done)
 
         self.win.run_async(move_b, moved)
+
+    def _select_both(self) -> None:
+        """Back to both motors; worker thread. A failure here must not hide the original error."""
+        try:
+            self.machine.select_motors("AB")
+        except Exception:  # noqa: BLE001 - link gone, timeout, ERR
+            log.exception("could not select both motors again")
+        self.win.post(self.win.jog_panel.show_motors, "AB")
 
     # -------------------------------------------------------------- limits --
     def set_limit(self, key: str) -> None:

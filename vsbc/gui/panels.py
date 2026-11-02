@@ -232,7 +232,7 @@ class JogPanel(Panel):
                                lambda r: self.win.status(f"Position restored to {r.number('pos'):.4f} mm"))
 
     def select_motors(self, index: int) -> None:
-        which = ("AB", "A", "B")[index]
+        which = self.MOTOR_CHOICES[index]
         if which != "AB" and not self.win.ask(
                 "Single-motor service mode",
                 f"Only driver {which} will get step pulses. If the screws are coupled to the crosshead "
@@ -244,10 +244,19 @@ class JogPanel(Panel):
         self.win.run_async(lambda: self.machine.select_motors(which),
                            lambda r: self.win.status(f"Motors: {r.get('motors')}"))
 
-    def on_connected(self) -> None:
+    MOTOR_CHOICES = ("AB", "A", "B")
+
+    def show_motors(self, which: str) -> None:
+        """Show the Mega's motor selection without sending MOTORS again."""
         self.motors.blockSignals(True)
-        self.motors.setCurrentIndex(0)
+        self.motors.setCurrentIndex(self.MOTOR_CHOICES.index(which) if which in self.MOTOR_CHOICES else 0)
         self.motors.blockSignals(False)
+
+    def on_connected(self) -> None:
+        self.show_motors("AB")
+        # The Mega does not always reset when the port opens: it may still be on one motor.
+        self.win.run_async(self.machine.status, lambda st: self.show_motors(st.motors), lambda _e: None,
+                           busy=False)
 
     def update_enabled(self, connected: bool, busy: bool) -> None:
         ok = connected and not busy

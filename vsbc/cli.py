@@ -341,9 +341,11 @@ def cmd_analyze(args, cfg: Config) -> int:
     spec = meta.get("specimen") or {}
     area = args.area or spec.get("area_mm2")
     gauge = args.gauge or spec.get("gauge_length_mm")
+    break_drop = args.break_drop if args.break_drop is not None else spec.get("break_drop_pct", 40.0)
+    break_min = args.break_min if args.break_min is not None else spec.get("break_min_n", 5.0)
     ext, load = cols["extension_mm"], cols["load_N"]
     summary = analyze(cols["time_s"], ext, load, area_mm2=area, gauge_length_mm=gauge,
-                      break_drop_pct=args.break_drop, break_min_n=args.break_min,
+                      break_drop_pct=break_drop, break_min_n=break_min,
                       fit_lo_frac=args.fit[0], fit_hi_frac=args.fit[1], stop_reason=meta.get("stop_reason"))
     (folder / "summary.json").write_text(json.dumps(summary.to_dict(), indent=2))
     (folder / "summary.txt").write_text(f"Specimen: {spec.get('specimen_id', folder.name)}\n\n{summary.to_text()}\n")
@@ -501,8 +503,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     a = sub.add_parser("analyze", help="recompute the summary and plot of a test")
     a.add_argument("path", help="test folder or its data.csv")
-    a.add_argument("--break-drop", type=float, default=40.0, help="break threshold, %% below peak")
-    a.add_argument("--break-min", type=float, default=0.0, help="minimum peak for a break, N")
+    a.add_argument("--break-drop", type=float,
+                   help="break threshold, %% below peak, 0 = no break (default: the test's setting, else 40)")
+    a.add_argument("--break-min", type=float,
+                   help="minimum peak for a break, N (default: the test's setting, else 5)")
     a.add_argument("--fit", nargs=2, type=float, default=(0.10, 0.40), metavar=("LO", "HI"),
                    help="stiffness fit window as fractions of the peak load")
     a.add_argument("--area", type=float, help="override the cross-section area, mm^2")

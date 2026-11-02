@@ -26,6 +26,8 @@ from vsbc.recorder import TestRecorder
 log = logging.getLogger(__name__)
 
 MIN_RATE_MM_S = 0.002
+# After STOP the Mega reports EVT MOVE_END at once; give up waiting after this long.
+STOP_GRACE_S = 3.0
 
 
 class PreflightError(RuntimeError):
@@ -197,7 +199,7 @@ class PullTestRunner:
                 move_end=dict(move_end.fields) if move_end else None,
                 aborted=aborted,
                 error=error,
-                break_drop_pct=s.break_drop_pct or 40.0,
+                break_drop_pct=s.break_drop_pct,
                 break_min_n=s.break_min_n,
             )
         self.running = False
@@ -217,18 +219,22 @@ class PullTestRunner:
         m = self.machine
         deadline = time.monotonic() + expected_s + 30.0
         started = False
-        stop_sent = False
+        stop_deadline: float | None = None
         while True:
-            if self._stop_requested.is_set() and not stop_sent:
+            # Checked on every pass: with the stream on, the inbox is never empty for long.
+            now = time.monotonic()
+            if self._stop_requested.is_set() and stop_deadline is None:
                 m.stop()
-                stop_sent = True
+                stop_deadline = now + STOP_GRACE_S
+            if stop_deadline is not None and now > stop_deadline:
+                raise TimeoutError("no end-of-move report from the Mega after STOP")
+            if now > deadline:
+                raise TimeoutError("the test did not finish in the expected time")
+            if not m.connected:
+                raise LinkClosed("connection lost during the test")
             try:
                 msg = inbox.get(timeout=0.2)
             except queue.Empty:
-                if not m.connected:
-                    raise LinkClosed("connection lost during the test") from None
-                if time.monotonic() > deadline:
-                    raise TimeoutError("the test did not finish in the expected time")
                 continue
             if isinstance(msg, Reply):
                 if msg.ok and msg.command == "RUN":
@@ -237,6 +243,9 @@ class PullTestRunner:
             if isinstance(msg, Event):
                 if msg.name == "DISCONNECTED":
                     raise LinkClosed(msg.fields.get("error", "connection lost"))
+                if msg.name == "READY":
+                    # The move ended with the reset, so no MOVE_END will come.
+                    raise RuntimeError("the Mega reset during the test (power or USB glitch?)")
                 if started and msg.name == "MOVE_END":
                     return msg
                 continue

@@ -76,18 +76,35 @@ class Summary:
         return "\n".join(lines)
 
 
-def find_break(load: np.ndarray, drop_pct: float, min_peak_n: float) -> int | None:
-    """Index of the last sample before the load fell drop_pct % below its running peak."""
-    if drop_pct <= 0 or len(load) == 0:
+def find_break(load: np.ndarray, drop_pct: float, min_peak_n: float, confirm: int = 2) -> int | None:
+    """Index of the last sample before the load fell drop_pct % below its running peak.
+
+    Like the firmware, the drop must last `confirm` samples in a row. The peak must
+    reach min_peak_n and a tenth of the test's peak, so a peak in the tare noise
+    (min_peak_n = 0) does not arm it.
+    """
+    load = np.asarray(load, dtype=float)
+    finite = load[np.isfinite(load)]
+    if drop_pct <= 0 or finite.size == 0:
         return None
+    floor = max(min_peak_n, 0.1 * float(finite.max()))
     peak = -math.inf
+    first_below: int | None = None
+    below = 0
     for i, value in enumerate(load):
         if not math.isfinite(value):
             continue
         if value > peak:
             peak = value
-        elif peak >= min_peak_n and peak > 0 and value < peak * (1 - drop_pct / 100.0):
-            return max(i - 1, 0)
+            below = 0
+        elif peak >= floor and peak > 0 and value < peak * (1 - drop_pct / 100.0):
+            if below == 0:
+                first_below = i
+            below += 1
+            if below >= confirm:
+                return max(first_below - 1, 0)
+        else:
+            below = 0
     return None
 
 
