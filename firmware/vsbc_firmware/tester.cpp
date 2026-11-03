@@ -15,8 +15,20 @@ long    hist[3]   = {0, 0, 0};
 uint8_t hist_n    = 0;
 bool    lc_alive  = false; // load-cell state last reported to the host
 
+// Time stamps for the D lines: whole milliseconds since power-up plus the
+// microseconds within that millisecond. Built from micros() (4 us steps), so a
+// sample's time is known to the microsecond, but it wraps after 49.7 days like
+// millis() instead of after 71.6 minutes like micros().
+struct Stamp {
+  unsigned long ms;
+  uint16_t      us;   // 0..999
+};
+Stamp         clock_now  = {0, 0};
+unsigned long clock_last = 0;      // micros() at the last stampNow()
+
 // Samples sent by the host (params.lc_host)
 unsigned long host_sample_ms = 0;
+unsigned long host_sample_us = 0;
 bool          host_have      = false;
 float         host_rate_hz   = 0.0f;
 
@@ -32,16 +44,34 @@ float   peak         = NAN;    // RUN: peak load in the run direction
 int8_t  run_dir      = 0;
 uint8_t break_count  = 0;
 
-// TARE / CAL averaging
-tester::AvgKind avg_kind  = tester::AVG_NONE;
-float           avg_known = 0.0f;
-long            avg_buf[AVERAGE_SAMPLES];
-uint8_t         avg_n     = 0;
+// TARE / CAL averaging: running mean and variance (Welford), so any number of
+// samples fits. Values are counts relative to the first sample, so the float
+// maths does not lose precision on the large raw values.
+tester::AvgKind avg_kind     = tester::AVG_NONE;
+float           avg_known    = 0.0f;
+long            avg_base     = 0;
+float           avg_mean     = 0.0f;
+float           avg_m2       = 0.0f;
+uint16_t        avg_n        = 0;
+unsigned long   avg_start_ms = 0;
 
 // Optional switch inputs
 bool estop   = false;
 bool lim_min = false;
 bool lim_max = false;
+
+// Called every loop(), so micros() never wraps between two calls.
+Stamp stampNow() {
+  unsigned long now = micros();
+  unsigned long us = now - clock_last + clock_now.us;
+  clock_last = now;
+  while (us >= 1000) {
+    us -= 1000;
+    clock_now.ms++;
+  }
+  clock_now.us = (uint16_t)us;
+  return clock_now;
+}
 
 // True if the active source delivered a sample within LOADCELL_TIMEOUT_MS.
 bool sourceAlive() {
@@ -76,15 +106,21 @@ void appendNumber(char *line, float v, uint8_t digits, float limit) {
   }
 }
 
-// D <t_ms> <pos_mm> <load_N> <raw> <state>
-void emitData() {
+// D <t_ms> <pos_mm> <load_N> <raw> <state>, t_ms with three decimals (microseconds)
+void emitData(const Stamp &t) {
   last_emit_ms = millis();
   char line[72];
   char num[12];
   strcpy(line, "D ");
-  ultoa(last_emit_ms, num, 10);
+  ultoa(t.ms, num, 10);
   strcat(line, num);
-  strcat(line, " ");
+  size_t len = strlen(line);
+  line[len++] = '.';
+  line[len++] = '0' + t.us / 100;
+  line[len++] = '0' + t.us / 10 % 10;
+  line[len++] = '0' + t.us % 10;
+  line[len++] = ' ';
+  line[len] = '\0';
   appendNumber(line, motion::position(), 4, 1.0e6f);
   strcat(line, " ");
   appendNumber(line, lc_alive ? last_load : NAN, 3, 1.0e7f);
@@ -105,21 +141,19 @@ void emitData() {
 }
 
 void collectAverage(long raw) {
-  avg_buf[avg_n++] = raw;
-  if (avg_n < AVERAGE_SAMPLES) return;
-
-  // Sum differences from the first sample so the float maths stays exact.
-  long base = avg_buf[0];
-  long sum = 0;
-  for (uint8_t i = 0; i < avg_n; i++) sum += avg_buf[i] - base;
-  float mean_rel = (float)sum / avg_n;
-  float var = 0.0f;
-  for (uint8_t i = 0; i < avg_n; i++) {
-    float d = (avg_buf[i] - base) - mean_rel;
-    var += d * d;
+  if (avg_n == 0) {
+    avg_base = raw;
+    avg_start_ms = millis();
   }
-  float noise = sqrt(var / (avg_n - 1));
-  float mean = base + mean_rel;
+  float x = (float)(raw - avg_base);
+  avg_n++;
+  float d = x - avg_mean;
+  avg_mean += d / avg_n;
+  avg_m2 += d * (x - avg_mean);
+  if (avg_n < AVERAGE_MIN_SAMPLES || millis() - avg_start_ms < AVERAGE_MS) return;
+
+  float noise = sqrt(avg_m2 / (avg_n - 1));
+  float mean = avg_base + avg_mean;
 
   tester::AvgKind kind = avg_kind;
   avg_kind = tester::AVG_NONE;
@@ -190,7 +224,7 @@ void checkIdleOverload() {
   Serial.println(filt_load, 3);
 }
 
-void onSample(long raw) {
+void onSample(long raw, const Stamp &t) {
   last_raw = raw;
   last_load = toNewtons(raw);
   hist[0] = hist[1];
@@ -206,7 +240,7 @@ void onSample(long raw) {
   if (avg_kind != tester::AVG_NONE) collectAverage(raw);
   if (motion::busy()) checkSafety(raw);
   else checkIdleOverload();
-  if (stream_on) emitData();
+  if (stream_on) emitData(t);
 }
 
 void checkLoadCell() {
@@ -277,9 +311,9 @@ void reportMoveEnd(const motion::MoveEnd &end) {
 void periodicTelemetry() {
   unsigned long now = millis();
   if (stream_on) {
-    if (!lc_alive && now - last_emit_ms >= NO_LOADCELL_STREAM_MS) emitData();
+    if (!lc_alive && now - last_emit_ms >= NO_LOADCELL_STREAM_MS) emitData(stampNow());
   } else if (motion::busy() && now - last_emit_ms >= PROGRESS_INTERVAL_MS) {
-    emitData();
+    emitData(stampNow());
   }
 }
 
@@ -295,8 +329,10 @@ void begin() {
 }
 
 void poll() {
+  // Taken just before poll() looks at DOUT: the time the conversion was found ready.
+  Stamp now = stampNow();
   long raw_value;
-  if (!params.lc_host && loadcell::poll(raw_value)) onSample(raw_value);
+  if (!params.lc_host && loadcell::poll(raw_value)) onSample(raw_value, now);
   checkLoadCell();
   checkInputs();
   checkWatchdog();
@@ -360,17 +396,21 @@ const char *sourceName() {
 
 void hostSample(long raw) {
   if (!params.lc_host) return;
-  unsigned long now = millis();
+  Stamp t = stampNow();
+  unsigned long now_us = micros();
   if (host_have) {
-    unsigned long dt = now - host_sample_ms;
-    if (dt > 0) {
-      float inst = 1000.0f / dt;
+    unsigned long dt = now_us - host_sample_us;
+    if (dt > LOADCELL_TIMEOUT_MS * 1000UL) {
+      host_rate_hz = 0.0f;   // after a gap: measure again from the next sample
+    } else if (dt > 0) {
+      float inst = 1.0e6f / dt;
       host_rate_hz = (host_rate_hz == 0.0f) ? inst : host_rate_hz + 0.1f * (inst - host_rate_hz);
     }
   }
-  host_sample_ms = now;
+  host_sample_ms = millis();
+  host_sample_us = now_us;
   host_have = true;
-  onSample(raw);
+  onSample(raw, t);
 }
 
 void sourceChanged() {
@@ -390,6 +430,8 @@ bool startAverage(AvgKind kind, float known_n) {
   avg_kind = kind;
   avg_known = known_n;
   avg_n = 0;
+  avg_mean = 0.0f;
+  avg_m2 = 0.0f;
   return true;
 }
 

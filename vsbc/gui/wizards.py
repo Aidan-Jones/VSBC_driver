@@ -3,6 +3,11 @@
 With the simulator connected, the dialogs also "hang" the entered load on the
 simulated load cell and fill in the travel a dial indicator would show, so the
 whole flow can be tried without hardware.
+
+Tension must read as positive load (the Mega's break detection and the
+results depend on it), so the load dialog asks which way the known loads act:
+loads placed on the load cell (compression) are stored as negative forces,
+and the fit then comes out tension-positive either way.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from vsbc.calibration import (
     LoadFit, LoadPoint, TravelTrial, apply_load_fit, apply_travel, collect_raw, fit_load_calibration,
     mass_to_newtons, save_record, travel_correction,
 )
-from vsbc.gui.common import QtWidgets, button, spin
+from vsbc.gui.common import QtWidgets, QuantitySpin, button, spin
 
 AVERAGE_S = 3.0
 
@@ -63,9 +68,17 @@ class LoadCalibrationDialog(_Dialog):
         self.value = spin(0.0, 1e6, 1000.0, 3, 100.0)
         self.unit = QtWidgets.QComboBox()
         self.unit.addItems(self.UNITS)
+        if win.units.force == "lbf":
+            self.unit.setCurrentText("lb")
+        self.direction = QtWidgets.QComboBox()
+        self.direction.addItem("Tension: hanging from / pulling on the load cell", 1.0)
+        self.direction.addItem("Compression: placed on / pushing on the load cell", -1.0)
+        self.direction.setToolTip("Which way the known loads act. Either works: the calibration always comes out "
+                                  "with tension positive, as the break detection needs.")
         self.record_btn = button("2.  Record this load", self.record)
         self.table = QtWidgets.QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Load (N)", "Mean (counts)", "Std (counts)", "Samples"])
+        self.table.setHorizontalHeaderLabels([f"Load ({win.units.force}, + = tension)", "Mean (counts)",
+                                              "Std (counts)", "Samples"])
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.remove_btn = button("Remove last point", self.remove_last)
@@ -79,16 +92,20 @@ class LoadCalibrationDialog(_Dialog):
         load_row.addWidget(self.value, 1)
         load_row.addWidget(self.unit)
         load_row.addWidget(self.record_btn)
+        direction_row = QtWidgets.QHBoxLayout()
+        direction_row.addWidget(QtWidgets.QLabel("Loads applied in"))
+        direction_row.addWidget(self.direction, 1)
         bottom = QtWidgets.QHBoxLayout()
         bottom.addWidget(self.save_btn, 1)
         bottom.addWidget(close_btn)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(_intro(
-            "Apply the known loads in the tension direction, for example by hanging weights from the "
-            "load cell. Use 2-5 loads that span the range you will test in, and let each one settle before "
-            f"recording it (each point is averaged for {AVERAGE_S:g} s)."))
+            "Apply known loads, for example by hanging weights from the load cell (tension) or placing them "
+            "on it (compression), and say which below. Use 2-5 loads that span the range you will test in, and "
+            f"let each one settle before recording it (each point is averaged for {AVERAGE_S:g} s)."))
         layout.addWidget(self.tare_btn)
+        layout.addLayout(direction_row)
         layout.addLayout(load_row)
         layout.addWidget(self.table, 1)
         layout.addWidget(self.remove_btn)
@@ -126,11 +143,12 @@ class LoadCalibrationDialog(_Dialog):
 
     def record(self) -> None:
         amount, unit = self.value.value(), self.unit.currentText()
-        force = mass_to_newtons(amount, unit, self.win.config.loadcell.gravity)
+        # Compression loads count as negative force, so the fit makes tension positive.
+        force = self.direction.currentData() * mass_to_newtons(amount, unit, self.win.config.loadcell.gravity)
         if force == 0:
             self.win.warn(self.windowTitle(), "Enter a non-zero load.")
             return
-        label = f"{amount:g} {unit}"
+        label = f"{amount:g} {unit}" + (" compression" if force < 0 else "")
         sim = self.machine.sim
 
         def work():
@@ -140,7 +158,7 @@ class LoadCalibrationDialog(_Dialog):
             return collect_raw(self.machine, AVERAGE_S)
 
         self._set_busy(True)
-        self.result.setText(f"Averaging {label} ({force:.3f} N)...")
+        self.result.setText(f"Averaging {label} ({self.win.units.format_force(force, 3)})...")
         self.win.run_async(work, lambda res: self._point_done(force, label, res), self._failed)
 
     def _point_done(self, force: float, label: str, res) -> None:
@@ -159,9 +177,11 @@ class LoadCalibrationDialog(_Dialog):
             self._refresh()
 
     def _refresh(self) -> None:
+        u = self.win.units
         self.table.setRowCount(len(self.points))
         for row, p in enumerate(self.points):
-            for col, text in enumerate((f"{p.force_n:.3f}", f"{p.raw_mean:.0f}", f"{p.raw_std:.1f}", str(p.n))):
+            for col, text in enumerate((f"{u.force_from_n(p.force_n):.3f}", f"{p.raw_mean:.0f}", f"{p.raw_std:.1f}",
+                                        str(p.n))):
                 self.table.setItem(row, col, QtWidgets.QTableWidgetItem(text))
         self.fit = None
         if len(self.points) >= 2:
@@ -174,7 +194,7 @@ class LoadCalibrationDialog(_Dialog):
             pct = f" ({f.max_residual_pct_fs:.3f} % of capacity)" if f.max_residual_pct_fs is not None else ""
             self.result.setText(
                 f"Scale {f.scale:.4f} counts/N, zero {f.offset:.0f} counts, R² = {f.r2:.6f}\n"
-                f"Largest error {f.max_residual_n:.3f} N{pct}")
+                f"Largest error {u.format_force(f.max_residual_n, 3)}{pct}")
         elif len(self.points) < 2:
             self.result.setText("Record the zero point and at least one known load.")
         self._update_buttons()
@@ -223,11 +243,12 @@ class TravelCalibrationDialog(_Dialog):
         self.result_data = None
         self.last_commanded: float | None = None
 
-        self.distance = spin(0.5, 200.0, 20.0, 2, 1.0, "mm")
-        self.rate = spin(0.01, 10.0, 1.0, 2, 0.1, "mm/s")
+        u = win.units
+        self.distance = QuantitySpin("length", 0.5, 200.0, 20.0, u, 2, 1.0)
+        self.rate = QuantitySpin("rate_s", 0.01, 10.0, 1.0, u, 2, 0.1)
         self.move_btn = button("1.  Move + distance", self.move_forward)
         self.back_btn = button("Move back", self.move_back)
-        self.measured = spin(-1000.0, 1000.0, 0.0, 4, 0.01, "mm")
+        self.measured = QuantitySpin("length", -1000.0, 1000.0, 0.0, u, 4, 0.01)
         self.add_btn = button("2.  Add trial", self.add_trial)
         self.trial_list = QtWidgets.QListWidget()
         self.result = QtWidgets.QLabel(f"Current steps/mm: {self.old:.4f}")
@@ -270,7 +291,7 @@ class TravelCalibrationDialog(_Dialog):
         self.save_btn.setEnabled(idle and self.result_data is not None)
 
     def _move(self, distance: float, fill_measurement: bool) -> None:
-        rate = self.rate.value()
+        rate = self.rate.si_value()
         sim = self.machine.sim
         start_true = sim.true_position_mm() if sim else None
 
@@ -282,26 +303,27 @@ class TravelCalibrationDialog(_Dialog):
             if fill_measurement:
                 self.last_commanded = end.number("moved")
                 shown = round(sim.true_position_mm() - start_true, 4) if sim else self.last_commanded
-                self.measured.setValue(shown)
-                self.result.setText(f"Commanded {self.last_commanded:.4f} mm. Enter the travel you measured, "
-                                    "then Add trial.")
+                self.measured.set_si_value(shown)
+                self.result.setText(f"Commanded {self.win.units.format_length(self.last_commanded)}. Enter the "
+                                    "travel you measured, then Add trial.")
             self._update_buttons()
 
         self._set_busy(True)
         self.win.run_async(lambda: self.machine.move_and_wait(distance, rate_mm_s=rate), done, self._failed)
 
     def move_forward(self) -> None:
-        self._move(self.distance.value(), True)
+        self._move(self.distance.si_value(), True)
 
     def move_back(self) -> None:
-        self._move(-self.distance.value(), False)
+        self._move(-self.distance.si_value(), False)
 
     def add_trial(self) -> None:
-        commanded, measured = self.last_commanded, self.measured.value()
+        commanded, measured = self.last_commanded, self.measured.si_value()
         if commanded is None or measured == 0:
             return
+        u = self.win.units
         self.trials.append(TravelTrial(commanded, measured))
-        self.trial_list.addItem(f"commanded {commanded:.4f} mm   measured {measured:.4f} mm   "
+        self.trial_list.addItem(f"commanded {u.format_length(commanded)}   measured {u.format_length(measured)}   "
                                 f"ratio {measured / commanded:.5f}")
         self.last_commanded = None
         try:
@@ -329,7 +351,7 @@ class TravelCalibrationDialog(_Dialog):
 
         def done(settings):
             path = save_record(self.win.config.calibration_dir, "travel", {
-                "trials": self.trials, "result": r, "rate_mm_s": self.rate.value(),
+                "trials": self.trials, "result": r, "rate_mm_s": self.rate.si_value(),
                 "firmware": asdict(self.machine.info) if self.machine.info else None,
                 "port": self.machine.port,
             })

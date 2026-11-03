@@ -8,6 +8,8 @@ import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
+from vsbc.units import MM_PER, N_PER, Units
+
 Qt = QtCore.Qt
 QShortcut = getattr(QtGui, "QShortcut", None) or QtWidgets.QShortcut
 
@@ -23,6 +25,12 @@ START_STYLE = (
 READOUT_STYLE = "QLabel { font-size: 22pt; font-weight: bold; font-family: Consolas, 'DejaVu Sans Mono', monospace; }"
 CAPTION_STYLE = "QLabel { color: #555; font-size: 9pt; }"
 BANNER_STYLE = "QLabel { background: #fdebd0; color: #7e5109; padding: 4px 8px; border-radius: 4px; }"
+BANNER_CRITICAL_STYLE = "QLabel { background: #f5b7b1; color: #78281f; padding: 4px 8px; border-radius: 4px; }"
+HIGH_SPEED_STYLE = (
+    "QPushButton { background: #7d3c98; color: white; font-weight: bold; border-radius: 6px; padding: 6px 14px; }"
+    "QPushButton:checked { background: #e67e22; }"
+    "QPushButton:disabled { background: #c9b3d3; }"
+)
 
 
 def apply_style(app, font_pt: int) -> None:
@@ -54,6 +62,79 @@ def spin(lo: float, hi: float, value: float, decimals: int = 2, step: float | No
         box.setSuffix(f" {suffix}")
     box.setKeyboardTracking(False)
     return box
+
+
+def nice_step(x: float) -> float:
+    """1, 2 or 5 times a power of ten, at or below x."""
+    if not x > 0:
+        return 1.0
+    p = 10 ** math.floor(math.log10(x))
+    return next(m * p for m in (5, 2, 1) if m * p <= x * 1.0001)
+
+
+class QuantitySpin(QtWidgets.QDoubleSpinBox):
+    """Spin box holding an SI value (N, mm, mm/min, mm/s, mm²) shown in the display units.
+
+    `si_value()` is what the machine gets. It only changes when the operator
+    edits the box, so switching the units back and forth never drifts it.
+    """
+
+    def __init__(self, kind: str, lo_si: float, hi_si: float, value_si: float, units: Units,
+                 decimals: int = 2, step_si: float | None = None, special: str = ""):
+        super().__init__()
+        if kind not in ("force", "length", "rate_min", "rate_s", "area"):
+            raise ValueError(f"unknown quantity {kind!r}")
+        self.kind = kind
+        self._lo, self._hi, self._si = lo_si, hi_si, value_si
+        self._decimals, self._step_si = decimals, step_si
+        self._updating = False
+        self._units = units
+        if special:
+            self.setSpecialValueText(special)
+        self.setKeyboardTracking(False)
+        self.valueChanged.connect(self._edited)
+        self.apply_units(units)
+
+    def _factor(self, units: Units) -> float:
+        """SI per display unit."""
+        if self.kind == "force":
+            return N_PER[units.force]
+        if self.kind == "area":
+            return MM_PER[units.length] ** 2
+        return MM_PER[units.length]
+
+    def _suffix(self, units: Units) -> str:
+        return {"force": units.force, "length": units.length, "rate_min": units.rate_min_label,
+                "rate_s": units.rate_s_label, "area": units.area_label}[self.kind]
+
+    def apply_units(self, units: Units) -> None:
+        self._units = units
+        f = self._factor(units)
+        self._updating = True
+        try:
+            self.setDecimals(self._decimals + (math.ceil(math.log10(f) - 1e-9) if f > 1 else 0))
+            self.setRange(self._lo / f, self._hi / f)
+            if self._step_si:
+                self.setSingleStep(nice_step(self._step_si / f))
+            self.setSuffix(f" {self._suffix(units)}")
+            self.setValue(self._si / f)
+        finally:
+            self._updating = False
+
+    def _edited(self, value: float) -> None:
+        if not self._updating:
+            self._si = value * self._factor(self._units)
+
+    def si_value(self) -> float:
+        return self._si
+
+    def set_si_value(self, value: float) -> None:
+        self._si = value
+        self._updating = True
+        try:
+            self.setValue(value / self._factor(self._units))
+        finally:
+            self._updating = False
 
 
 def button(text: str, slot=None, style: str | None = None, min_height: int | None = None) -> QtWidgets.QPushButton:
@@ -96,5 +177,5 @@ def exec_app(app) -> int:
 
 
 __all__ = ["QtCore", "QtGui", "QtWidgets", "Qt", "QShortcut", "pg", "np", "fmt", "spin", "button",
-           "GrowingArray", "apply_style", "exec_app", "STOP_STYLE", "START_STYLE", "READOUT_STYLE",
-           "CAPTION_STYLE", "BANNER_STYLE"]
+           "GrowingArray", "QuantitySpin", "nice_step", "apply_style", "exec_app", "STOP_STYLE", "START_STYLE",
+           "READOUT_STYLE", "CAPTION_STYLE", "BANNER_STYLE", "BANNER_CRITICAL_STYLE", "HIGH_SPEED_STYLE"]

@@ -11,16 +11,21 @@ Two Stepperonline 23HS30-3004S stepper motors, each on a DM542T V4.0 driver, tur
 
 By default the load-cell amplifier is wired to the Mega, which reads it. The Mega firmware then also works on its own from the Arduino IDE Serial Monitor, without the Pi. The amplifier can be wired to the Pi's GPIO pins instead (`source = "pi"` in `config.toml`); the app then reads it and passes every reading to the Mega.
 
+A Basler a2A1920-160umBAS camera records the specimen for **DIC** (digital image correlation, with pyvale). The camera scripts in [`camera/`](camera/) run inside the app (the **Camera** tab), with every test. Each data.csv row gets its own image, and the frames around the break are saved at the camera's full rate.
+
 ```
 Raspberry Pi 5 ── Python app "vsbc" ─────────────────────────────────────────
-  GUI (touchscreen)      command line (terminal, test, calibrate, flash)
+  GUI (touchscreen)      command line (terminal, test, calibrate, flash, camera)
        │                         │
   pull-to-failure test    calibration: load cell, travel, direction, limits
        │
   Machine API ── serial link ── (or the built-in simulator, for a PC without hardware)
        │              ▲
        │              └── HX711 reader (GPIO5 / GPIO6, if source = "pi"): every reading goes to the Mega
-  data files, plots, logs  →  Outputs/
+       │
+  camera process (.venv-camera) ── Basler camera over USB 3, camera/*.py scripts, DIC jobs after the test
+       │
+  data files, video, DIC results, plots, logs  →  Outputs/
 ─────────────────── USB serial, 115200 baud, line protocol ───────────────────
 Arduino Mega 2560 ── firmware/vsbc_firmware ─────────────────────────────────
   Timer1 step engine (both motors in lockstep)      its own HX711 (or load readings from the Pi)
@@ -38,7 +43,9 @@ Arduino Mega 2560 ── firmware/vsbc_firmware ──────────�
 - [Using the GUI](#using-the-gui)
 - [Calibration](#calibration)
 - [Running a pull-to-failure test](#running-a-pull-to-failure-test)
+- [DIC camera](#dic-camera)
 - [Output files](#output-files)
+- [Storage and copying outputs](#storage-and-copying-outputs)
 - [Command line](#command-line)
 - [Arduino IDE / Serial Monitor only](#arduino-ide--serial-monitor-only)
 - [Legacy sketches (motion only)](#legacy-sketches-motion-only)
@@ -59,6 +66,8 @@ Arduino Mega 2560 ── firmware/vsbc_firmware ──────────�
 | [`firmware/legacy/`](firmware/legacy/) | The two old standalone sketches (motion only, no load cell), kept for reference. See [Legacy sketches](#legacy-sketches-motion-only). |
 | [`vsbc/`](vsbc/) | Python package that runs on the Pi (and on a PC) |
 | [`vsbc/gui/`](vsbc/gui/) | PyQt5 + pyqtgraph touchscreen GUI |
+| [`camera/`](camera/) | The DIC camera scripts (capture, pyvale DIC, strain, crack tips). **Swappable**: drop updated versions in; see [camera/README.md](camera/README.md) |
+| [`vsbc/camera/`](vsbc/camera/) | The app's side of the camera: the camera process, clock sync, post-processing jobs, simulated camera |
 | [`vsbc/loadcell_pi.py`](vsbc/loadcell_pi.py) | Reads the HX711 on the Pi's GPIO pins |
 | [`vsbc/sim.py`](vsbc/sim.py) | Simulated Mega, so the app and tests run without hardware |
 | [`tests/`](tests/) | pytest suite (runs against the simulator) |
@@ -135,8 +144,11 @@ Load cell, **wired to the Mega (default)**:
 
 Both wirings:
 
-- The HX711 samples at **10 per second** as shipped. Cutting the RATE jumper on the back of the SparkFun board gives **80 per second**, which makes break detection react 8× faster. The firmware measures the rate and reports it.
-- If a force in the tension direction reads negative, that is fine: calibration takes care of the sign.
+- The HX711 samples at **10 per second** as shipped. **Cut the RATE jumper** on the back of the SparkFun board for **80 per second** ([how](docs/hardware.md#hx711-sample-rate-cut-the-rate-jumper-for-80s)). Break detection then reacts 8× faster, and the camera gets 8× more frames paired with load readings. The app expects 80 (`rate_hz` under `[loadcell]` in `config.toml`). It compares that with the rate the firmware measures and warns at connect when they differ.
+- **Tension must read as positive load.**
+  - The break detection and the results depend on it.
+  - The calibration sets the sign. The load-cell wizard asks whether the known loads hang from the load cell (tension) or are placed on it (compression); on the command line, use `--compression`.
+  - If tension still shows negative, **Calibrate → Flip load sign** fixes it without recalibrating. The app warns during a test when this happens.
 - The calibration is stored on the Mega for both. Calibrate again after moving the amplifier from one to the other.
 
 The Pi connects to the Mega with a USB cable. Opening the port resets the Mega, so the position has to be set again after the app connects (see [Position reference](#position-reference)).
@@ -168,6 +180,14 @@ Starting from a Pi with only Raspberry Pi OS installed and an internet connectio
    vsbc                           # start the GUI (also in the desktop menu as "VSBC Tensile Tester")
    ```
 
+4. For the DIC camera, add its environment once (about 1 GB, 10–20 minutes):
+
+   ```bash
+   bash scripts/install_pi.sh --camera   # .venv-camera with pypylon + pyvale, Basler udev rule,
+                                         # USB camera memory (reboot once), ffmpeg
+   vsbc camera check                     # frame rate and dropped frames, disk speed, a small pyvale DIC
+   ```
+
 If the terminal says `vsbc: command not found`, the install script did not finish (it stops at the first error): run it again and read its last lines. The command itself is at `VSBC_driver/.venv/bin/vsbc` and can always be run by that full path, for example `~/VSBC_driver/.venv/bin/vsbc flash`.
 
 Everything the Pi needs is in the repository or installed by the script; nothing has to be copied over by hand. `vsbc gui --fullscreen` fills the screen for a kiosk-style touchscreen. The install script asks whether to start it automatically at login.
@@ -197,7 +217,9 @@ vsbc gui --sim                 # the whole app, running against the simulator
 
 On macOS / Linux: `python3 -m venv ~/.venvs/vsbc && source ~/.venvs/vsbc/bin/activate`, then the same `pip` and `vsbc` commands.
 
-The simulator behaves like the real firmware: it has a noisy load cell, safety stops, and a specimen that yields and breaks. With a Mega plugged in, leave out `--sim`.
+The simulator behaves like the real firmware: it has a noisy load cell, safety stops, and a specimen that yields and breaks. With `--sim` the camera is simulated too: a speckle pattern that stretches with the extension and cracks at the break. With a Mega plugged in, leave out `--sim`.
+
+To use the real camera on a PC, point `[camera] python` in `config.toml` at a Python environment with pypylon, pyvale and OpenCV (for example the laptop's conda `dic` environment). Keep `Outputs/` (`output_dir`) outside OneDrive: a recording writes gigabytes.
 
 ### Arduino IDE only
 
@@ -209,30 +231,38 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ [port ▼] [⟳] [Disconnect]   /dev/ttyACM0 · vsbc_firmware 2.1.1     [STOP] │
+│ [port ▼] [⟳] [Disconnect]   /dev/ttyACM0 · vsbc_firmware 2.3.0     [STOP] │
 │  LOAD          POSITION          EXTENSION          STATE                 │
 │  123.45 N      12.3450 mm        2.3450 mm          TEST                  │
 ├──────────────────────────────────────────┬────────────────────────────────┤
-│ [Load – extension] [Load & position – time] │ [Test] [Jog] [Calibrate]    │
-│                                          │ [Console] [Firmware]           │
-│        (live plot)                       │  (tab contents)                │
+│ [Camera] [Load – extension]              │ [Test] [Camera] [Outputs]      │
+│          [Load & position – time]        │ [Jog] [Calibrate] [Units] ...  │
+│   (camera preview, or live plot)         │  (tab contents)                │
 └──────────────────────────────────────────┴────────────────────────────────┘
 ```
 
 - **STOP** (or **Esc** / **Space**) stops the motors immediately. It is always enabled. Any command sent while the motors are moving also stops them.
-- **Connect**: pick the Mega's port (or "Auto-detect", or "Simulator") and press Connect. Warnings (load cell not found, not calibrated, position not referenced) appear in a banner under the readouts.
-- **Readouts**: load (N), crosshead position (mm), extension since the test started (mm), and machine state.
-- **Plots**: load vs extension for the current test, and load and position vs time (the last 60 s).
+- **Connect**: pick the Mega's port (or "Auto-detect", or "Simulator") and press Connect. Warnings (load cell not found, not calibrated, position not referenced, storage low) appear in a banner under the readouts.
+- **Readouts**: load, crosshead position, extension since the test started, and machine state, in the units chosen in the Units tab.
+- **Left tabs**:
+  - **Camera** (the default): the live preview, the ROI editor and the high-speed button (see [DIC camera](#dic-camera)).
+  - **Load – extension**: the current test.
+  - **Load & position – time**: the last 60 s.
 
-Tabs:
+Tabs on the right:
 
 | Tab | What it does |
 |---|---|
-| **Test** | Specimen ID, rate (mm/min), maximum extension, load and break limits, optional area and gauge length, tare before starting, return afterwards. **Start test**, then the results summary and **Open results folder**. |
-| **Jog** | Move the crosshead: rate, step (0.01 / 0.1 / 1 / 10 mm), ▲ / ▼ buttons (also the arrow keys), Go to, Home, Tare. Set the position reference. Service mode: move one motor only. |
-| **Calibrate** | Shows the calibration stored on the Mega. Load-cell and travel wizards, direction check, travel limits, overload cutoff. |
+| **Test** | Specimen ID, rate, maximum extension, load and break limits, optional area and gauge length, tare before starting, return afterwards. **Start test**, the **⚡ High-speed camera** button during a test, then the results summary and **Open results folder**. |
+| **Camera** | Camera settings from `camera/capture_dic_live.py`: recording with each test, frames per load sample, RAM buffer, settle time, load-cell delay, DIC options, and what runs after the test (video, DIC, strain, crack tips). It also checks the camera scripts and has Reload, Process a folder, and Check camera. |
+| **Outputs** | Disk space, every test and recording with its size, **Copy to a USB drive**, delete a test or only its camera images, delete old logs. |
+| **Jog** | Move the crosshead: rate, step (0.01 / 0.1 / 1 / 10 mm, or 0.001–0.5 in), ▲ / ▼ buttons (also the arrow keys), Go to, Home, Tare. Set the position reference. Service mode: move one motor only. |
+| **Calibrate** | Shows the calibration stored on the Mega. Load-cell and travel wizards, **flip load sign**, direction check, travel limits, overload cutoff. |
+| **Units** | Force in N or lbf; travel in mm, cm, m or in. The GUI uses these units everywhere. data.csv keeps its N/mm columns and gets extra columns in the chosen units; summary.txt, plot.png and the video use them too. The choice is remembered. |
 | **Console** | Raw serial terminal (like the Serial Monitor) and a log of events. |
 | **Firmware** | Shows the firmware version; compiles and uploads the firmware (arduino-cli). |
+
+On a narrow screen the right-hand tabs scroll (the arrows at the end of the tab bar).
 
 ### Position reference
 
@@ -250,11 +280,16 @@ Do them in this order the first time:
 
 1. **Direction check** (Calibrate tab). The crosshead moves +1 mm; confirm it moved in the tension direction (grips apart). If not, the app flips `dir_invert` and saves it. You can also check motor B on its own; do this only with the screws uncoupled.
 2. **Travel (steps/mm)**. The crosshead moves a set distance (default 20 mm). You measure the real travel with calipers or a dial indicator and enter it; repeat a few times if you like. The app sets `steps_per_mm = old × commanded ÷ measured`. An error of more than 5 % is flagged as a problem to fix, not calibrate away: most likely the microstep DIP switches or the screw lead. For example, a 0.016 ratio means the drivers are still at 25000 pulses/rev. Afterwards, set the position reference again.
-3. **Load cell**. With nothing on the load cell, **Tare + record zero**. Then apply known loads in the tension direction, for example by hanging weights. Enter each one in g, kg, lb or N and press **Record**; each point is averaged over 3 s. Use 2–5 loads that span the range you will test in. The app fits a straight line (least squares) and shows R² and the worst error in N and % of capacity. **Save** writes `load_scale` and `load_offset` to the Mega and offers to set the overload cutoff to 90 % of `capacity_n`.
+3. **Load cell**. With nothing on the load cell, **Tare + record zero**.
+   - Choose how the known loads act: hanging from or pulling on the load cell (tension), or placed on it (compression). Either way, tension comes out positive.
+   - Apply each known load, enter it in g, kg, lb or N, and press **Record**. Each point is averaged over 3 s. Use 2–5 loads that span the range you will test in.
+   - The app fits a straight line (least squares) and shows R² and the worst error, in your force unit and as % of capacity.
+   - **Save** writes `load_scale` and `load_offset` to the Mega and offers to set the overload cutoff to 90 % of `capacity_n`.
+   - If a later test shows tension as negative load, **Flip load sign** in the Calibrate tab fixes it.
 4. **Travel limits**. Jog to the lowest and highest safe positions and press **Set lower / upper travel limit here**. Any move beyond them is refused.
 5. **Overload cutoff** (`max_load`). Any move stops when |load| reaches it while the load is rising. Set it below the load cell's and the frame's rating.
 
-The command line does the same with `vsbc calibrate load` and `vsbc calibrate travel`. In the Serial Monitor, a single-point load calibration is `TARE`, hang a known weight, `CAL <newtons>`, then `SAVE`.
+The command line does the same with `vsbc calibrate load` (add `--compression` for weights placed on the load cell) and `vsbc calibrate travel`. In the Serial Monitor, a single-point load calibration is `TARE`, hang a known weight, `CAL <newtons>`, then `SAVE`.
 
 ### Load-cell calibration without the Mega
 
@@ -282,11 +317,48 @@ It asks for the same zero point and known loads as step 3, reading the HX711 dir
    - **Stop at load** (optional).
    - **Break: drop from peak**: the load must fall this far below its peak (default 40 %) on two samples in a row. **Break: min peak** arms the detection only after the peak reaches this load, which ignores noise at the start.
    - **Area** and **gauge length** (optional): add stress and strain to the data and the results.
-3. Press **Start test**. The app checks the setup first and lists anything that stops the test from starting. It then tares (if selected), sends the per-test limits to the Mega, and starts a constant-rate test move.
-4. The test ends when the Mega detects the break, a load limit, the max extension, STOP, or a problem (load cell lost, host silent). The Mega makes the stop decision itself, so a frozen Pi cannot let the test run on.
-5. The results appear in the Test tab and are saved in a new folder.
+3. Press **Start test**. The app checks the setup first and lists anything that stops the test from starting.
+   - It then tares (if selected) and sends the per-test limits to the Mega.
+   - With the camera on, it shows a hands-off countdown and takes the reference frame.
+   - Then it starts a constant-rate test move.
+4. The test ends when the Mega detects the break, a load limit, the max extension, STOP, or a problem (load cell lost, host silent). The Mega makes the stop decision itself, so a frozen Pi cannot let the test run on. The camera stops with the test, and if the camera fails, the test stops too.
+5. The results appear in the Test tab and are saved in a new folder. With the camera, the video and the DIC follow in the background.
 
 Stiffness is fitted between 10 % and 40 % of the peak load. The displacement comes from the motor steps (crosshead), so it includes the stretch of the frame and grips: stiffness and modulus are **apparent** values.
+
+---
+
+## DIC camera
+
+The camera code runs in its own Python environment (`.venv-camera`, from `install_pi.sh --camera`), as a separate process. The camera settings (exposure, crop, buffer, DIC parameters) are the USER SETTINGS in [`camera/capture_dic_live.py`](camera/capture_dic_live.py). [camera/README.md](camera/README.md) has the details, and the interface the scripts must keep when you swap in new versions.
+
+**Before the first test:**
+- **Camera tab → Edit ROI**:
+  - draw the region for DIC (include the notch);
+  - place the seed well inside it;
+  - place the notch tip;
+  - set the crack direction.
+
+  Use **1:1 zoom** to check the focus and **Exposure ±** to adjust (watch `sat` and `bright99.9`).
+- **Matching the load cell and the camera.** The HX711 gives 80 load readings per second with its RATE jumper cut (10 as shipped). The camera runs at its full rate (about 478 fps with the 400-row crop) and keeps the last `BUFFER_SECONDS` in RAM.
+  - **The rest of the test:** for every load reading it saves the frame taken nearest that moment (about ±1 ms), so every data.csv row has its own image. Load is interpolated to each frame's exact time.
+  - **The important frames:** every frame of the RAM buffer is saved at the break (when the Mega detects it), and also while **⚡ High speed** is on. These frames carry the latest load reading, which is not interpolated across the break.
+- **⚡ High speed** (Camera tab or Test tab) saves every frame from the RAM buffer onward, until you turn it off or the test ends. Press it when the break is near. The disk usually cannot keep up at the full rate, so frames wait in RAM; the camera line shows how long that can last before the oldest high-speed frames are dropped.
+- **The test and the camera stop together.** When the test ends, the camera stops. If the camera stops (Stop recording, disk full, camera unplugged), the test stops too, and the results say why.
+- **One clock.**
+  - Frames get a `time_s` on data.csv's clock and zero: the Mega's clock, with zero at the first sample of the test.
+  - `video.mp4` plays in real time from `time_s` = 0, so pausing it at 12.345 s shows the moment of data.csv's row at 12.345 s. Each frame shows the time and the load.
+  - The load-cell delay setting compensates the HX711's filter lag. Measure it once with a tap test.
+- **After the test**, at low priority, and paused while the next test records (Linux):
+  1. the sync;
+  2. the video;
+  3. DIC;
+  4. strain and plots;
+  5. both crack trackers.
+
+  Choose which ones in the Camera panel. **Process a folder…** or `vsbc camera process <folder>` runs them again.
+- **Live DIC** during the test is off by default: on the Pi it competes with the camera for the CPU.
+- A recording without a test: **● Record** in the Camera tab (it goes to `Outputs/camera/<date>/`).
 
 ---
 
@@ -298,14 +370,20 @@ Everything goes into `Outputs/` (change it with `output_dir` in `config.toml` or
 Outputs/
 ├── tests/2026-09-29/153012_A1/
 │   ├── data.csv        every sample, written while the test runs
-│   ├── meta.json       test settings, firmware, machine settings, calibration, start/end, stop reason
-│   ├── summary.json    results (summary.txt: the same, readable)
+│   ├── meta.json       test settings, firmware, machine settings, calibration, start/end, stop reason, units
+│   ├── summary.json    results in N and mm (summary.txt: the same, readable, in the display units)
 │   ├── summary.txt
 │   ├── plot.png        load vs extension (+ stress vs strain with area and gauge length)
-│   └── serial.log      serial traffic during the test (without data lines)
+│   ├── serial.log      serial traffic during the test (without data lines)
+│   ├── video.mp4       with the camera: playback time = data.csv time_s, time and load on each frame
+│   └── camera/         with the camera: frames, frames.csv, DIC results, plots, crack tips (camera/README.md)
+├── camera/2026-09-29/160000_noise/            recordings made without a test (Camera tab > Record)
+├── camera/last_roi.npz                       the ROI, seed and notch tip from the Camera tab
 ├── calibration/2026-09-29_150100_load.json   one record per calibration
 ├── logs/vsbc.log                             app log (rotating)
+├── logs/camera.log                           the camera process
 ├── logs/2026-09-29_15-00-02_serial.log       each connection's serial session
+├── preferences.json                          the Units tab's choice
 ├── last_position.json                        position saved at the last clean exit
 └── pending_load_calibration.json             only after `calibrate load --no-mega`, until the Mega has it
 ```
@@ -314,15 +392,33 @@ Outputs/
 
 | Column | Meaning |
 |---|---|
-| `time_s` | Time since the test started, from the Mega's clock (no USB jitter) |
+| `time_s` | Time since the test started, from the Mega's clock (no USB jitter), to 0.1 ms. The firmware stamps each reading when the HX711 signals it ready. |
 | `position_mm` | Crosshead position relative to the reference |
 | `extension_mm` | Position − position at the start of the test |
-| `load_N` | Load |
+| `load_N` | Load (tension positive) |
 | `stress_MPa`, `strain` | Only if area / gauge length were given (strain from the crosshead) |
 | `raw_counts` | Raw HX711 reading |
 | `state` | `R` during the test |
+| `position_in`, `extension_in`, `load_lbf`, `stress_psi`, ... | Only with display units other than N and mm: the same values in those units |
+| `frame`, `frame_dt_ms` | Only with the camera: the camera frame (`camera/images/frame_<frame>.tif`) saved for this row, and how far its time is from the row's (ms) |
 
 The results include peak load and the extension at peak, break load and extension, apparent stiffness (with R²), and energy to peak and to break. With area and gauge length they also include UTS, apparent modulus, strain at peak and elongation at break. `vsbc analyze <folder>` recalculates them, for example with a different stiffness window: `--fit 0.2 0.5`.
+
+---
+
+## Storage and copying outputs
+
+- **Storage warnings.**
+  - A banner warns when the drive with `output_dir` has less than `warn_free_gb` free (10 GB), and turns red below `critical_free_gb` (2 GB). Both are set under `[storage]` in `config.toml`; the Outputs tab title gets a ⚠.
+  - With the camera, the Camera panel estimates each test's size. Starting a test that would not fit is refused.
+  - Below 1 GB free, the camera saves only the full-rate frames; below 0.3 GB it stops, and with it the test.
+- **Outputs tab:**
+  - disk usage and about how many more tests fit;
+  - every test and recording with its size, camera images, video and DIC results;
+  - **Copy to a USB drive**: plug it in, press ⟳, select tests, Copy, then **Eject**. Raw camera images are left out unless ticked. The copy goes to `VSBC_outputs/` on the drive and pauses while the camera records.
+  - **Delete camera images** (frees most of the space; data.csv, video, DIC results and plots stay);
+  - **Delete** a whole test;
+  - delete logs older than 30 days.
 
 ---
 
@@ -335,14 +431,16 @@ Every command that talks to the machine accepts `--port` (default: auto-detect),
 | `vsbc` or `vsbc gui [--fullscreen]` | Start the GUI |
 | `vsbc terminal` | Serial terminal with a session log (replaces `serial_logger.py`). Sends STOP on exit. |
 | `vsbc test --specimen A1 --rate 5 --max-ext 20 [--area 12.5 --gauge 50]` | Pull-to-failure test without the GUI (e.g. over SSH), with a live text readout. Ctrl+C stops it. |
-| `vsbc calibrate load` / `vsbc calibrate travel` | Calibration with text prompts |
+| `vsbc calibrate load` / `vsbc calibrate travel` | Calibration with text prompts (`calibrate load --compression` for weights placed on the load cell) |
 | `vsbc calibrate load --no-mega` | Load-cell calibration on the Pi alone; stored on the Mega at the next connection |
+| `vsbc camera check [--sim]` | The camera's frame rate and dropped frames, the disk's write speed, the camera scripts, and a small synthetic pyvale DIC (catches pyvale version differences). Run it on the Pi before the first real test. |
+| `vsbc camera process <folder> [--only video,dic,strain,crack_image,crack_opening]` | Sync, video, DIC, strain and crack tips for a test folder or a camera recording, without the GUI |
 | `vsbc analyze <test folder>` | Recalculate a test's summary and plot |
 | `vsbc flash [--port ...] [--compile-only]` | Compile and upload the firmware with arduino-cli |
 | `vsbc ports` | List serial ports |
 | `vsbc loadcell [--seconds 5]` | Check the load cell where `config.toml` says it is wired: raw counts and sample rate from the Mega (default), and why it is not responding if so; with `source = "pi"`, the HX711 on the Pi's GPIO pins (discarded readings too, no Mega needed). It first prints which config file it read. |
 
-`vsbc --help` and `vsbc <command> --help` list all options. `python -m vsbc ...` works too.
+`vsbc --help` and `vsbc <command> --help` list all options. `python -m vsbc ...` works too. Command-line values are in mm and N; printed results use the display units (`[units]`, or the Units tab's last choice).
 
 ---
 
@@ -404,10 +502,15 @@ The same jobs in `vsbc_firmware`:
 - the serial port and baud rate;
 - the output folder;
 - where the load-cell amplifier is wired (`source = "pi"` or `"mega"`) and the Pi GPIO pins;
-- the load-cell capacity and local gravity;
+- the load-cell capacity, local gravity and the HX711's sample rate (`rate_hz`: 80 with the RATE jumper cut);
 - default test settings;
 - the watchdog timeout;
-- GUI refresh rate, font size and full screen.
+- GUI refresh rate, font size and full screen;
+- `[units]`: the default display units (the Units tab overrides them and remembers its choice);
+- `[storage]`: the free-space warning levels;
+- `[camera]`: the camera folder and environment, recording with each test, how frames are saved (`save_mode`), the load-cell delay, and what runs after the test.
+
+**Camera settings** (exposure, crop, frame rate, RAM buffer, DIC parameters) are the USER SETTINGS in [`camera/capture_dic_live.py`](camera/capture_dic_live.py), not in the config file.
 
 **Machine calibration** (steps/mm, load scale, travel limits, overload cutoff, directions): stored on the Mega and changed from the Calibrate tab or with `SET` + `SAVE`. It is not in the config file.
 
@@ -445,7 +548,7 @@ Change them, then upload again.
 3. **One motor at a time**, screws uncoupled if possible: `MOTORS A`, `Z`, `V1`, `M5`. Expect 3200 steps, 5.0 mm of screw travel in 5.0 s. Then `MOTORS B` and repeat.
 4. **Both motors**: `MOTORS AB`, `M5`. Both screws move together, the same distance and direction. If B turns the wrong way, `SET invert_b 1`, `SAVE`.
 5. **Cancel**: `V0.5`, `M20`, then type `x` + Enter mid-move. It stops at once, and `H` returns to 0.
-6. **Load cell**: `vsbc loadcell`. Expect about 10 or 80 readings per second and counts that change when you press on the load cell. With the HX711 on the Pi, also few discarded readings (a few percent at most).
+6. **Load cell**: `vsbc loadcell`. Expect about 80 readings per second (10 means the RATE jumper is not cut yet: see [docs/hardware.md](docs/hardware.md#hx711-sample-rate-cut-the-rate-jumper-for-80s)) and counts that change when you press on the load cell. With the HX711 on the Pi, also few discarded readings (a few percent at most).
 7. **App**: on the Pi, run `vsbc`, connect, then do the calibration steps in [Calibration](#calibration) in order.
 8. **Safety tests**, with a low `max_load`:
    - press on the load cell during a jog: `OVERLOAD` stop;
@@ -459,10 +562,14 @@ Change them, then upload again.
 
 ```bash
 pip install -e ".[gui,dev]"
-pytest                          # 86 tests against the simulator (incl. an offscreen GUI run), ~25 s
-vsbc gui --sim                  # try GUI changes without hardware
+pytest                          # 136 tests against the simulators (incl. offscreen GUI runs and the
+                                # camera process with the simulated camera), ~80 s
+vsbc gui --sim                  # try GUI changes without hardware (simulated Mega and camera)
 vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 ```
+
+- The camera tests and `--sim` run the camera process with this environment's Python and the simulated camera. With `opencv-python-headless` installed they also make the video.
+- The camera process and the post-processing jobs import only the standard library and NumPy (plus pypylon, cv2 and pyvale in the camera environment). Never import cv2, pypylon or pyvale in the GUI process.
 
 - The protocol is defined in [docs/protocol.md](docs/protocol.md). The firmware (`commands.cpp`, `tester.cpp`, `motion.cpp`) and the simulator (`vsbc/sim.py`) both implement it. **Change all three together**; the simulator is what the tests run against.
 - Both the firmware and the Python package carry a version number. The protocol version must match exactly (the app refuses to connect otherwise); a firmware version mismatch only gives a warning.
@@ -472,7 +579,7 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
   - `tester.*`: load samples from the host or the Mega's HX711, safety, averaging, telemetry;
   - `commands.*`: parser;
   - `settings.*`: EEPROM.
-- The whole firmware uses about 23 kB of flash and 1.2 kB of RAM on the Mega 2560.
+- The whole firmware uses about 26 kB of flash and 1.2 kB of RAM on the Mega 2560.
 
 ---
 
@@ -480,15 +587,23 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 
 - [ ] **Hardware: set SW5–8 to ON ON OFF ON (3200 pulses/rev) on both drivers.** The older 400 (OFF ON ON ON) and 25000 (all OFF) settings move the wrong distance; the travel calibration flags them.
 - [ ] **Hardware: set S2 to 5V on both drivers.** It ships at 24V.
-- [ ] **Choose the load cell and wire the SparkFun HX711 to the Mega** (VCC and VDD → 5V, DAT → D26, CLK → D27). If possible set the HX711 to 80 samples/s. Put the load cell's capacity in `config.toml`.
+- [ ] **Choose the load cell and wire the SparkFun HX711 to the Mega** (VCC and VDD → 5V, DAT → D26, CLK → D27). Put the load cell's capacity in `config.toml`.
+- [ ] **Cut the HX711's RATE jumper** for 80 samples/s ([how](docs/hardware.md#hx711-sample-rate-cut-the-rate-jumper-for-80s)). `vsbc loadcell` should then report about 80 per second.
 - [ ] **If the HX711 is moved to the Pi, measure its timing on the Pi 5** with `vsbc loadcell`. The reader is tested against a fake GPIO only; the share of discarded readings on the real Pi, with the GUI running, is not known yet.
-- [ ] **Run the new firmware on the real Mega.** Version 2.0.0 compiled cleanly (arduino-cli, `arduino:avr:mega`); 2.1.0 (load readings from the Pi) has not been compiled yet, so `vsbc flash` on the Pi is its first build. The app is tested against the simulator, but neither has run on the hardware.
+- [ ] **Run the new firmware on the real Mega.** Version 2.3.0 (protocol 3: sample times to the microsecond, 2 s TARE/CAL averaging) compiles without warnings for `arduino:avr:mega` (avr-gcc 7.3, `-Wall -Wextra`). Upload it with `vsbc flash` or the Firmware tab: this app refuses firmware that speaks protocol 2. The app is tested against the simulator, but neither has run on the hardware.
 - [ ] **Try the GUI on the Pi 5** (tested on Windows).
 - [ ] **Set real travel limits and the overload cutoff** after the first calibration.
 - [ ] **Fit a hardware E-stop** that cuts motor power; optionally limit switches (pins in `config.h`).
 - [ ] **Check motor temperature.** SW1–3 at ON OFF OFF gives 3.76 A peak / 2.69 A RMS, just under the motor's 3.0 A rating, with full current at standstill (SW4 ON). Lower it if the motors run too hot.
-- [ ] Extension is measured at the crosshead, so it includes frame and grip compliance. A compliance correction or an extensometer would give true specimen strain.
+- [ ] Extension is measured at the crosshead, so it includes frame and grip compliance. A compliance correction or an extensometer would give true specimen strain. (The DIC strain from the camera does not have this problem.)
 - [ ] Only pull-to-failure is built in. Cyclic, hold/relaxation and compression tests can follow the same pattern (`RUN` with a negative distance already moves in compression).
+- [ ] **Camera on the Pi:**
+  - Run `bash scripts/install_pi.sh --camera`, reboot, then `vsbc camera check`.
+  - Expect 0 dropped frames at 478 fps over USB. Check the disk write speed: 1 frame per load sample at 80/s needs about 61 MB/s, so use a USB 3 SSD for `output_dir` if the SD card is slower.
+  - Check that pyvale **2026.4.0** (the newest with an ARM64 package) accepts the same `calculate_2d` call as 2026.10.2.
+  - The camera integration is tested with the simulated camera only.
+- [ ] **Measure the load-cell delay** with a tap test (tap the grip in view; compare the video and data.csv) and set `load_delay_ms`.
+- [ ] Optional: a faster ADC than the HX711 (NAU7802 up to 320 samples/s, ADS1220 up to 2 kHz) would give more frames paired with load readings.
 
 ---
 

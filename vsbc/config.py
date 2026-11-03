@@ -1,8 +1,9 @@
 """Host configuration.
 
 Machine calibration (steps/mm, load-cell scale, travel limits) lives in the
-Mega's EEPROM, not here. This only holds host preferences, test defaults and
-where the load-cell amplifier is wired.
+Mega's EEPROM, not here. This only holds host preferences, test defaults,
+where the load-cell amplifier is wired, the camera, display units and the
+storage warning levels.
 Values come from an optional TOML file (see config.example.toml), searched in
 this order: --config, $VSBC_CONFIG, <repo>/config.toml, ~/.config/vsbc/config.toml.
 """
@@ -15,11 +16,14 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vsbc.units import FORCE_UNITS, LENGTH_UNITS
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIRMWARE_DIR = REPO_ROOT / "firmware" / "vsbc_firmware"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "Outputs"
 CONFIG_ENV = "VSBC_CONFIG"
 LOADCELL_SOURCES = ("pi", "mega")
+CAMERA_SAVE_MODES = ("match", "every", "all")
 
 
 @dataclass
@@ -36,6 +40,7 @@ class LoadCellConfig:
     dout_pin: int = 5                # Pi GPIO (BCM number) wired to the HX711 DAT pin
     sck_pin: int = 6                 # Pi GPIO (BCM number) wired to the HX711 CLK pin
     gain: int = 128                  # HX711 gain: 128 or 64 (channel A), 32 (channel B)
+    rate_hz: float = 80.0            # HX711 conversions per second: 80 with its RATE jumper cut, 10 as shipped
     capacity_n: float = 500.0        # rated capacity; sets the default max_load
     gravity: float = 9.80665         # m/s^2, converts calibration masses to N
 
@@ -61,11 +66,51 @@ class GuiConfig:
 
 
 @dataclass
+class CameraConfig:
+    """The DIC camera. Camera and DIC parameters (exposure, crop, buffer, subsets) are the
+    USER SETTINGS in camera/capture_dic_live.py; these are the app's choices around them."""
+
+    enabled: bool = True             # show the Camera tab
+    auto_start: bool = True          # start the camera preview when the app opens
+    dir: str = "camera"              # folder with the camera scripts, relative to the repository
+    python: str = ""                 # camera environment's Python; "" = .venv-camera, else this app's
+    simulate: bool = False           # synthetic camera (also with --sim)
+    record_with_test: bool = True
+    save_mode: str = "match"         # "match": the frame nearest each load sample; "every": SAVE_EVERY; "all"
+    match_divisor: int = 1           # "match": one frame every this many load samples
+    dump_on_break: bool = True       # keep every frame of the RAM buffer when the Mega detects the break
+    load_delay_ms: float = 0.0       # HX711 filter lag, used when pairing frames with load samples
+    live_dic: bool = False           # DIC during the test (competes with grabbing on the Pi)
+    run_dic: bool = True             # after the test
+    run_strain: bool = True
+    strain_animation: bool = False
+    crack_tip_image: bool = True
+    crack_tip_opening: bool = True
+    make_video: bool = True
+    video_fps: float = 30.0
+
+
+@dataclass
+class UnitsConfig:
+    force: str = "N"                 # "N" or "lbf"
+    length: str = "mm"               # "mm", "cm", "m" or "in"
+
+
+@dataclass
+class StorageConfig:
+    warn_free_gb: float = 10.0       # banner when less than this is free where the outputs are saved
+    critical_free_gb: float = 2.0
+
+
+@dataclass
 class Config:
     serial: SerialConfig = field(default_factory=SerialConfig)
     loadcell: LoadCellConfig = field(default_factory=LoadCellConfig)
     test: TestDefaults = field(default_factory=TestDefaults)
     gui: GuiConfig = field(default_factory=GuiConfig)
+    camera: CameraConfig = field(default_factory=CameraConfig)
+    units: UnitsConfig = field(default_factory=UnitsConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
     output_dir: Path = DEFAULT_OUTPUT_DIR
     watchdog_ms: int = 3000          # firmware stops a move if the host is silent this long
     ping_interval_s: float = 0.5
@@ -91,6 +136,21 @@ class Config:
     def pending_load_file(self) -> Path:
         """Load-cell calibration made without the Mega, waiting to be stored on it."""
         return self.output_dir / "pending_load_calibration.json"
+
+    @property
+    def preferences_file(self) -> Path:
+        """Choices made in the GUI that are kept between sessions (units)."""
+        return self.output_dir / "preferences.json"
+
+    @property
+    def camera_dir(self) -> Path:
+        path = Path(self.camera.dir).expanduser()
+        return path if path.is_absolute() else REPO_ROOT / path
+
+    @property
+    def camera_recordings_dir(self) -> Path:
+        """Camera recordings made without a test."""
+        return self.output_dir / "camera"
 
 
 def _apply(obj, data: dict, where: str = "") -> None:
@@ -128,6 +188,14 @@ def load_config(path: str | Path | None = None) -> Config:
 
     if cfg.loadcell.source not in LOADCELL_SOURCES:
         raise ValueError(f"config key 'loadcell.source' must be one of {LOADCELL_SOURCES}, not {cfg.loadcell.source!r}")
+    if not cfg.loadcell.rate_hz > 0:
+        raise ValueError(f"config key 'loadcell.rate_hz' must be above 0, not {cfg.loadcell.rate_hz!r}")
+    if cfg.camera.save_mode not in CAMERA_SAVE_MODES:
+        raise ValueError(f"config key 'camera.save_mode' must be one of {CAMERA_SAVE_MODES}, not {cfg.camera.save_mode!r}")
+    if cfg.units.force not in FORCE_UNITS:
+        raise ValueError(f"config key 'units.force' must be one of {FORCE_UNITS}, not {cfg.units.force!r}")
+    if cfg.units.length not in LENGTH_UNITS:
+        raise ValueError(f"config key 'units.length' must be one of {LENGTH_UNITS}, not {cfg.units.length!r}")
 
     out = Path(cfg.output_dir).expanduser()
     if not out.is_absolute():

@@ -4,13 +4,21 @@
 #     sudo apt install -y git
 #     git clone https://github.com/Aidan-Jones/VSBC_driver.git
 #     cd VSBC_driver
-#     bash scripts/install_pi.sh
+#     bash scripts/install_pi.sh             # add --camera for the DIC camera environment
 # It is safe to run again, for example after a "git pull".
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$REPO/.venv"
+CAMERA_VENV="$REPO/.venv-camera"
 BIN="$HOME/.local/bin"
+CAMERA=""
+for arg in "$@"; do
+    case "$arg" in
+        --camera) CAMERA="y" ;;
+        --no-camera) CAMERA="n" ;;
+    esac
+done
 
 echo "==> System packages"
 sudo apt-get update
@@ -84,6 +92,47 @@ for cfg in "$REPO/config.toml" "$USER_CONFIG"; do
     fi
 done
 
+echo "==> DIC camera (Basler + pyvale)"
+# The camera code runs in its own environment: pyvale needs PyQt6, opencv-python
+# and NumPy 2, which must not mix with the app's apt PyQt5 / NumPy / matplotlib.
+if [ -z "$CAMERA" ]; then
+    if [ -x "$CAMERA_VENV/bin/python" ]; then
+        CAMERA="y"   # installed on an earlier run: update it
+    elif [ -t 0 ]; then
+        read -r -p "Install the camera + DIC environment (about 1 GB, 10-20 min)? [y/N] " CAMERA || CAMERA=""
+    fi
+fi
+REBOOT=""
+if [[ "$CAMERA" =~ ^[Yy] ]]; then
+    sudo apt-get install -y ffmpeg
+    if [ ! -x "$CAMERA_VENV/bin/python" ]; then
+        python3 -m venv "$CAMERA_VENV"
+    fi
+    "$CAMERA_VENV/bin/pip" install --upgrade pip
+    "$CAMERA_VENV/bin/pip" install -r "$REPO/camera/requirements.txt"
+
+    # Let pypylon open Basler USB cameras (vendor 2676) without root.
+    RULE=/etc/udev/rules.d/69-basler-cameras.rules
+    if [ ! -f "$RULE" ]; then
+        echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="2676", MODE="0666"' | sudo tee "$RULE" >/dev/null
+        sudo udevadm control --reload-rules && sudo udevadm trigger
+        echo "    Added $RULE"
+    fi
+
+    # Basler recommends 1000 MB of USB buffer memory for USB 3 cameras (the default 16 MB drops frames).
+    CMDLINE=/boot/firmware/cmdline.txt
+    [ -f "$CMDLINE" ] || CMDLINE=/boot/cmdline.txt
+    if [ -f "$CMDLINE" ] && ! grep -q "usbcore.usbfs_memory_mb" "$CMDLINE"; then
+        sudo cp "$CMDLINE" "$CMDLINE.bak"
+        sudo sed -i '1 s/$/ usbcore.usbfs_memory_mb=1000/' "$CMDLINE"
+        echo "    Added usbcore.usbfs_memory_mb=1000 to $CMDLINE (backup: $CMDLINE.bak)"
+        REBOOT="y"
+    fi
+    echo "    Camera environment: $CAMERA_VENV. Check it with:  vsbc camera check"
+else
+    echo "    Skipped (run again with --camera to add it)."
+fi
+
 echo
 hash -r
 if command -v vsbc >/dev/null 2>&1 && vsbc --version >/dev/null 2>&1; then
@@ -99,3 +148,10 @@ echo "  2. Plug in the Mega and upload the firmware:   vsbc flash"
 echo "  3. Check the load cell (wired to the Mega):    vsbc loadcell"
 echo "  4. Start the app:                              vsbc"
 echo "     (or 'VSBC Tensile Tester' in the desktop menu)"
+if [[ "$CAMERA" =~ ^[Yy] ]]; then
+    echo "  5. Check the camera, the disk and pyvale:      vsbc camera check"
+fi
+if [ -n "$REBOOT" ]; then
+    echo
+    echo "Reboot once for the USB camera memory setting to take effect."
+fi

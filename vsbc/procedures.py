@@ -10,7 +10,7 @@ import platform
 import queue
 import threading
 import time
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Callable
 
@@ -22,6 +22,7 @@ from vsbc.link import DeviceError, LinkClosed
 from vsbc.machine import Machine, mm_min_to_mm_s
 from vsbc.protocol import Event, Reply, Sample
 from vsbc.recorder import TestRecorder
+from vsbc.units import Units
 
 log = logging.getLogger(__name__)
 
@@ -67,26 +68,42 @@ class PullTestResult:
     aborted: bool
     error: str | None = None
     move_end: dict | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 class PullTestRunner:
     """Runs one pull-to-failure test. `run()` blocks; call it on a worker thread
-    from a GUI. `request_stop()` may be called from any thread."""
+    from a GUI. `request_stop()` may be called from any thread.
+
+    `before_run(folder, stop_event)` runs on the runner thread once the test
+    folder exists, just before RUN (the camera starts recording there); it may
+    block, and raising aborts the test. `after_run(move_end_event_or_None)`
+    runs however the test ends, so the camera always stops with the trial.
+    """
 
     def __init__(self, machine: Machine, spec: PullTestSpec, config: Config | None = None,
                  on_sample: Callable[[Sample, float], None] | None = None,
-                 on_started: Callable[[float, Path], None] | None = None):
+                 on_started: Callable[[float, Path], None] | None = None,
+                 before_run: Callable[[Path, threading.Event], None] | None = None,
+                 after_run: Callable[[Event | None], None] | None = None,
+                 units: Units | None = None):
         self.machine = machine
         self.spec = spec
         self.config = config or machine.config
         self.on_sample = on_sample          # (sample, extension_mm), on the runner thread
         self.on_started = on_started        # (start_position_mm, folder)
+        self.before_run = before_run
+        self.after_run = after_run
+        self.units = units or Units()
         self.start_pos: float | None = None
         self.recorder: TestRecorder | None = None
         self.running = False
+        self.stop_notes: list[str] = []     # why the test was stopped from outside (the camera)
         self._stop_requested = threading.Event()
 
-    def request_stop(self) -> None:
+    def request_stop(self, reason: str | None = None) -> None:
+        if reason and reason not in self.stop_notes:
+            self.stop_notes.append(reason)
         self._stop_requested.set()
         try:
             self.machine.stop()
@@ -163,12 +180,17 @@ class PullTestRunner:
             m.refresh_settings()
 
             rec = TestRecorder(self.config.tests_dir, s.specimen_id, self._metadata(),
-                               s.area_mm2, s.gauge_length_mm)
+                               s.area_mm2, s.gauge_length_mm, units=self.units,
+                               capacity_n=self.config.loadcell.capacity_n)
             self.recorder = rec
             m.add_raw_listener(rec.log_serial)
             m.add_listener(inbox.put)
             if self._stop_requested.is_set():
                 raise InterruptedError("stopped before the test started")
+            if self.before_run is not None:
+                self.before_run(rec.folder, self._stop_requested)
+                if self._stop_requested.is_set():
+                    raise InterruptedError("stopped before the test started")
 
             reply = m.run(s.max_extension_mm)
             self.start_pos = reply.number("from")
@@ -190,9 +212,15 @@ class PullTestRunner:
             m.remove_listener(inbox.put)
             if rec is not None:
                 m.remove_raw_listener(rec.log_serial)
+            if self.after_run is not None:
+                try:
+                    self.after_run(move_end)
+                except Exception:  # noqa: BLE001 - the camera must never break the test result
+                    log.exception("after_run hook failed")
 
         stop_reason = move_end.fields.get("reason") if move_end else ("ERROR" if aborted else None)
         summary = None
+        warnings = [f"Stopped because {note}." for note in self.stop_notes]
         if rec is not None:
             summary = rec.finish(
                 stop_reason,
@@ -201,7 +229,9 @@ class PullTestRunner:
                 error=error,
                 break_drop_pct=s.break_drop_pct,
                 break_min_n=s.break_min_n,
+                warnings=warnings,
             )
+            warnings = rec.warnings
         self.running = False
 
         if s.return_after and not aborted and self.start_pos is not None and m.connected:
@@ -212,7 +242,7 @@ class PullTestRunner:
         if interrupted is not None:
             raise interrupted
         return PullTestResult(rec.folder if rec else None, stop_reason, summary, aborted, error,
-                              dict(move_end.fields) if move_end else None)
+                              dict(move_end.fields) if move_end else None, warnings)
 
     def _record(self, inbox: queue.Queue, rec: TestRecorder, expected_s: float) -> Event:
         """Record samples between OK RUN and EVT MOVE_END."""
@@ -266,4 +296,5 @@ class PullTestRunner:
             "settings": m.settings,
             "load_calibration_record": str(cal[0]) if cal else None,
             "host": platform.node(),
+            "camera": self.before_run is not None,
         }

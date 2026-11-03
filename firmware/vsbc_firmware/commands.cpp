@@ -138,7 +138,7 @@ void cmdHelp(const Command &c, uint8_t, char **) {
   Serial.println(F("#   MOTORS AB|A|B     service: pulse one driver only"));
   Serial.println(F("#   ID  PING  HELP [?]"));
   Serial.println(F("#   SET lc_host 1     load cell read by the host, sent as LC <raw>"));
-  Serial.println(F("# Data: D <t_ms> <pos_mm> <load_N> <raw> <I|M|R>"));
+  Serial.println(F("# Data: D <t_ms> <pos_mm> <load_N> <raw> <I|M|R>  (t_ms to 0.001 ms)"));
 
   Serial.print(F("# Position "));
   Serial.print(motion::position(), 3);
@@ -168,6 +168,9 @@ void cmdHelp(const Command &c, uint8_t, char **) {
     Serial.print(tester::sampleRateHz(), 1);
     Serial.print(F(" samples/s from "));
     Serial.println(tester::sourceName());
+    if (tester::sampleRateHz() > 0.0f && tester::sampleRateHz() < 40.0f) {
+      Serial.println(F("# The HX711 is at 10 samples/s: cut its RATE jumper for 80 (docs/hardware.md)."));
+    }
   }
   ok(c);
   Serial.println();

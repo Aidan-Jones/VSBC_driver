@@ -24,6 +24,9 @@ source = "mega"
 dout_pin = 5                 # Pi GPIO number (BCM) on the HX711 DAT pin: GPIO5 = header pin 29
 sck_pin = 6                  # Pi GPIO number (BCM) on the HX711 CLK pin: GPIO6 = header pin 31
 gain = 128                   # HX711 gain: 128 or 64 (channel A), 32 (channel B)
+rate_hz = 10                 # HX711 readings per second: 80 with its RATE jumper cut (docs/hardware.md),
+                             # 10 as shipped. The camera saves one frame per reading. A warning shows
+                             # when the measured rate does not match.
 capacity_n = 500.0           # rated capacity of the load cell, N (sets the default overload cutoff)
 gravity = 9.80665            # m/s^2, converts calibration masses to newtons
 
@@ -42,3 +45,33 @@ fullscreen = false
 refresh_hz = 25
 time_window_s = 60
 font_pt = 11
+
+[units]                       # what the GUI shows; the Units tab changes it (and remembers the choice)
+force = "N"                  # "N" or "lbf"
+length = "mm"                # "mm", "cm", "m" or "in". data.csv always keeps N and mm columns too.
+
+[storage]                     # warning banner when the drive with output_dir runs low
+warn_free_gb = 10.0
+critical_free_gb = 2.0
+
+[camera]                      # the DIC camera. Exposure, crop, buffer and DIC settings are the
+                              # USER SETTINGS in camera/capture_dic_live.py.
+enabled = true               # show the Camera tab
+auto_start = true            # start the camera preview when the app opens
+dir = "camera"               # folder with the camera scripts (swap updated scripts in here)
+python = ""                  # camera environment's Python; "" = .venv-camera next to the app, else this app's
+simulate = false             # synthetic camera instead of the Basler (vsbc gui --sim does this too)
+record_with_test = true
+save_mode = "match"          # "match": the frame nearest each load sample (1:1 with data.csv)
+                             # "every": every SAVE_EVERY-th frame; "all": every frame
+match_divisor = 1            # "match": one frame every this many load samples (1 = every sample)
+dump_on_break = true         # keep every frame of the RAM buffer when the Mega detects the break
+load_delay_ms = 0.0          # HX711 filter lag (measure with a tap test), used when pairing frames
+live_dic = false             # DIC during the test (slow on the Pi, can cost frames)
+run_dic = true               # after the test:
+run_strain = true            #   strain + plots (pyvale_dic_run.py)
+strain_animation = false
+crack_tip_image = true
+crack_tip_opening = true
+make_video = true            #   video.mp4 whose playback time equals data.csv time_s
+video_fps = 30.0

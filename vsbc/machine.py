@@ -29,6 +29,9 @@ from vsbc.protocol import Event, Info, Message, Reply, Sample, settings_from_rep
 
 log = logging.getLogger(__name__)
 
+# The firmware's TARE / CAL average this long, and at least 16 samples (config.h AVERAGE_MS).
+AVERAGE_S = 2.0
+
 
 def mm_min_to_mm_s(rate_mm_min: float) -> float:
     return rate_mm_min / 60.0
@@ -36,6 +39,19 @@ def mm_min_to_mm_s(rate_mm_min: float) -> float:
 
 def mm_s_to_mm_min(rate_mm_s: float) -> float:
     return rate_mm_s * 60.0
+
+
+def loadcell_rate_problem(measured_hz: float, config: Config) -> str | None:
+    """A warning when the measured load-cell rate does not match [loadcell] rate_hz."""
+    expected = config.loadcell.rate_hz
+    if measured_hz <= 0 or 0.7 * expected <= measured_hz <= 1.3 * expected:
+        return None
+    text = (f"The load cell sends {measured_hz:.0f} readings/s, but rate_hz = {expected:g} under [loadcell] "
+            f"in {config.source or 'config.toml'}.")
+    if measured_hz < 20 <= expected:
+        return text + (" The HX711 is still at its shipped 10 readings/s: cut its RATE jumper for 80 "
+                       "(docs/hardware.md), or set rate_hz = 10.")
+    return text + f" Set rate_hz = {measured_hz:.0f} if that is how the HX711 is set up."
 
 
 class FirmwareMismatch(RuntimeError):
@@ -110,7 +126,7 @@ class Machine:
         self.port: str | None = None
         self.settings: dict[str, float] = {}
         self.latest: Sample | None = None
-        self.sample_rate_hz = 10.0            # updated from STATUS
+        self.sample_rate_hz = self.config.loadcell.rate_hz   # updated from STATUS
         self.warnings: list[str] = []         # connect-time warnings for the UI
         self._listeners: list[Callable[[Message], None]] = []
         self._raw_listeners: list[Callable[[str, bool], None]] = []
@@ -238,6 +254,9 @@ class Machine:
                 self.warnings.append(self.loadcell_problem(status))
             elif not status.calibrated:
                 self.warnings.append("Load cell not calibrated.")
+            rate_problem = self.rate_problem(status.sample_rate_hz) if status.loadcell_ok else None
+            if rate_problem:
+                self.warnings.append(rate_problem)
             if not status.referenced:
                 self.warnings.append("Position not referenced: set zero at the reference position.")
         except BaseException:
@@ -361,6 +380,9 @@ class Machine:
         else:
             why = "DAT (D26) stays low after the clock pulses: check CLK on D27 and VDD (5V)"
         return f"Load cell not responding: {why}. (Config: {self.config_description()}.)"
+
+    def rate_problem(self, measured_hz: float) -> str | None:
+        return loadcell_rate_problem(measured_hz, self.config)
 
     def reconfigure_after_reset(self) -> dict[str, float]:
         """The Mega reset while connected: it forgot the watchdog, the stream and the load-cell source."""
@@ -536,7 +558,7 @@ class Machine:
         return self.command("ZERO", float(position_mm))
 
     def _average_timeout(self) -> float:
-        return 16 / max(self.sample_rate_hz, 5.0) * 2 + 3.0
+        return max(AVERAGE_S, 16 / max(self.sample_rate_hz, 5.0)) * 2 + 3.0
 
     def tare(self) -> Reply:
         self.status()   # refresh the sample rate for the timeout

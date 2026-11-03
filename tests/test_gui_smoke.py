@@ -34,6 +34,9 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
     win.resize(1280, 800)
     win.show()
     try:
+        # The Camera tab comes first and is the one showing.
+        assert win.plots.tabText(0) == "Camera" and win.plots.currentWidget() is win.camera_view
+        assert [win.plots.tabText(i) for i in (1, 2)] == ["Load – extension", "Load && position – time"]
         win.connect_machine(None, sim=SimulatedMega(specimen=Specimen(**FAST_SPECIMEN), seed=3))
         assert _wait(app, lambda: win.machine.connected and win.machine.latest is not None
                      and win.connect_btn.text() == "Disconnect")
@@ -60,6 +63,7 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
         assert (result.folder / "data.csv").is_file()
         assert "Peak load" in win.test_panel.result.toPlainText()
         assert len(win.plots._ext) > 10
+        assert win.plots.currentWidget() is win.camera_view       # a test does not switch away from the camera
 
         # STOP during a jog.
         win.jog_panel.rate.setValue(1.0)

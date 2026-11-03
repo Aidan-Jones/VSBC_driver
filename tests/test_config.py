@@ -10,6 +10,9 @@ def test_example_config_matches_the_defaults():
     assert cfg.loadcell == defaults.loadcell
     assert cfg.test == defaults.test
     assert cfg.gui == defaults.gui
+    assert cfg.camera == defaults.camera
+    assert cfg.units == defaults.units
+    assert cfg.storage == defaults.storage
     assert cfg.watchdog_ms == defaults.watchdog_ms
     assert cfg.output_dir == REPO_ROOT / "Outputs"
 
@@ -29,6 +32,21 @@ def test_unknown_keys_are_rejected(tmp_path):
     path.write_text("[loadcell]\ncapcity_n = 5\n")
     with pytest.raises(ValueError, match="loadcell.capcity_n"):
         load_config(path)
+
+
+def test_bad_choices_are_rejected(tmp_path):
+    path = tmp_path / "c.toml"
+    for text, key in (('[units]\nforce = "kgf"\n', "units.force"), ('[units]\nlength = "ft"\n', "units.length"),
+                      ('[camera]\nsave_mode = "some"\n', "camera.save_mode"), ("[loadcell]\nrate_hz = 0\n", "loadcell.rate_hz")):
+        path.write_text(text)
+        with pytest.raises(ValueError, match=key):
+            load_config(path)
+
+
+def test_camera_dir_is_relative_to_the_repository(tmp_path):
+    path = tmp_path / "c.toml"
+    path.write_text('[camera]\ndir = "my_camera"\n')
+    assert load_config(path).camera_dir == REPO_ROOT / "my_camera"
 
 
 def test_missing_explicit_file(tmp_path):

@@ -1,8 +1,11 @@
-# Serial protocol v2
+# Serial protocol v3
 
 This is the contract between the Mega firmware (`firmware/vsbc_firmware`) and the
 Python host (`vsbc/`). The simulator in `vsbc/sim.py` implements the same
 protocol, so any change here must be made in all three places.
+
+Changes from v2 (firmware 2.3.0): `t_ms` in `D` lines has three decimals
+(microseconds), and `TARE` / `CAL` average for 2 s instead of 16 samples.
 
 - USB serial, **115200 baud**, 8N1, ASCII.
 - Every line ends with a newline (`\n`, `\r` or `\r\n` all work). A line typed
@@ -32,19 +35,20 @@ Values are plain numbers; unknown or missing values print as `nan`.
 
 ```
 D <t_ms> <pos_mm> <load_N> <raw> <state>
-D 123456 12.3450 87.512 1419842 R
+D 123456.789 12.3450 87.512 1419842 R
 ```
 
 | Field | Meaning |
 |---|---|
-| `t_ms` | Mega `millis()` when the sample was read (use this, not the PC clock) |
+| `t_ms` | Mega clock in ms, to 0.001 ms (built from `micros()`, wraps after 49.7 days like `millis()`), when the sample was read: when the HX711 signalled the conversion ready, or when the `LC` line arrived. Use this, not the PC clock. Lines without a sample (no load cell, `STREAM OFF` progress) carry the time they were sent. |
 | `pos_mm` | Crosshead position in mm, 4 decimals (+ = tension) |
 | `load_N` | Load in N, 3 decimals; `nan` when the load cell is missing or not calibrated; `inf`/`-inf` if out of printable range |
 | `raw` | Load-cell ADC counts (0 when no load cell). With `lc_host` = 1 this is the value the host sent. |
 | `state` | `I` idle, `M` manual move (`MOVE`/`GOTO`/`HOME`), `R` test run (`RUN`) |
 
 - `STREAM ON`: one line per load-cell sample, whichever source it comes from (10 or 80 per second, depending on
-  the HX711 RATE pin), idle or moving. Without a load cell: one line every 100 ms.
+  the HX711 RATE pin: SparkFun's board ships at 10, 80 with its RATE jumper cut; see hardware.md), idle or
+  moving. Without a load cell: one line every 100 ms.
 - `STREAM OFF` (the default at power-up): one line every 500 ms, only while moving.
 - If the serial transmit buffer is full the line is skipped, never delayed.
   Skipped lines are counted in `STATUS drops=`.
@@ -61,7 +65,7 @@ Any other line, including an unknown one, **stops the move** and gets
 | Command | Alias | Any time | Reply |
 |---|---|---|---|
 | `HELP` | `?` | yes | `#` menu lines, then `OK HELP` |
-| `ID` | | yes | `OK ID name=vsbc_firmware ver=2.1.1 proto=2 loadcell=HX711` (`loadcell=HOST` when `lc_host` = 1) |
+| `ID` | | yes | `OK ID name=vsbc_firmware ver=2.3.0 proto=3 loadcell=HX711` (`loadcell=HOST` when `lc_host` = 1) |
 | `STATUS` | `S` | yes | `OK STATUS state= pos= load= raw= rate= motors= ref= lc= cal= sps= stream= drops= lchost= lcbad= t=` (`lchost` = the `lc_host` setting; `lcbad` = HX711 readings thrown away because DOUT stayed low after the clock pulses; both from 2.1.1) |
 | `GET` | | yes | `OK GET` followed by every setting as `key=value` |
 | `PING` | | yes | `OK PING` (resets the host watchdog, like any line) |
@@ -106,9 +110,10 @@ Any other line, including an unknown one, **stops the move** and gets
 - **ZERO** sets the current position (default 0) and marks it **referenced**.
   The position is unreferenced after power-up or reset, and after a
   single-motor move.
-- **TARE** averages 16 samples with no load and stores the offset.
+- **TARE** averages the samples of 2 s (at least 16: 160 at 80 per second,
+  20 at 10 per second) with no load and stores the offset.
   `noise=` is the standard deviation in counts.
-- **CAL <N>** averages 16 samples with a known load of N newtons applied and
+- **CAL <N>** averages the samples of 2 s (at least 16) with a known load of N newtons applied and
   sets `load_scale = (mean − load_offset) / N`. Run `TARE` first.
   Needs at least 1000 counts of change (`ERR RANGE` otherwise).
 - **MOTORS A** or **B** pulses only one driver, for bring-up or service. The
@@ -189,14 +194,14 @@ trigger a stop.
 ## Example session
 
 ```
-EVT READY name=vsbc_firmware ver=2.1.1 proto=2
+EVT READY name=vsbc_firmware ver=2.3.0 proto=3
 > SET lc_host 1
 OK SET lc_host=1
 > LC 84310
 > STREAM ON
 OK STREAM on=1
 > LC 84312
-D 2051 0.0000 nan 84312 I
+D 2051.316 0.0000 nan 84312 I
 > ZERO
 OK ZERO pos=0.0000
 > RATE 0.0833
@@ -204,7 +209,7 @@ OK RATE rate=0.0833 actual=0.0833 max=10.0000
 > RUN 20
 OK RUN from=0.0000 target=20.0000 steps=1600 rate=0.0833 expected=240.10
 > LC 84360
-D 2163 0.0000 0.012 84360 R
+D 2163.844 0.0000 0.012 84360 R
 ...
 EVT MOVE_END reason=BREAK mode=RUN pos=3.9875 moved=3.9875 time=47.86 peak=401.220
 ```

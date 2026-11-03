@@ -2,8 +2,9 @@
   HX711 24-bit load-cell ADC.
 
   The HX711 pulls DOUT low when a conversion is ready (10 or 80 per second,
-  set by its RATE pin -- most boards ship at 10). poll() is called from loop()
-  and only reads when DOUT is low, so it never waits.
+  set by its RATE pin -- most boards ship at 10; cut SparkFun's RATE jumper for
+  80). poll() is called from loop() and only reads when DOUT is low, so it
+  never waits.
 
   Interrupts stay ENABLED while clocking the bits out. The HX711 powers down if
   SCK stays high for more than 60 us; each high pulse here lasts about 5-15 us,
@@ -25,6 +26,7 @@ const unsigned long MIN_SAMPLE_INTERVAL_MS = 5;
 
 unsigned long last_read_ms = 0;
 unsigned long last_sample_ms = 0;
+unsigned long last_sample_us = 0;   // micros(), for the rate: millis() is too coarse at 80 per second
 unsigned long discarded_count = 0;
 bool have_sample = false;
 float rate_hz = 0.0f;
@@ -73,14 +75,18 @@ bool poll(long &raw) {
   if (value & 0x800000UL) value |= 0xFF000000UL;   // sign-extend 24-bit two's complement
   raw = (long)value;
 
+  unsigned long now_us = micros();
   if (have_sample) {
-    unsigned long dt = now - last_sample_ms;
-    if (dt > 0) {
-      float inst = 1000.0f / dt;
+    unsigned long dt = now_us - last_sample_us;
+    if (dt > LOADCELL_TIMEOUT_MS * 1000UL) {
+      rate_hz = 0.0f;   // after a gap: measure again from the next sample
+    } else if (dt > 0) {
+      float inst = 1.0e6f / dt;
       rate_hz = (rate_hz == 0.0f) ? inst : rate_hz + 0.1f * (inst - rate_hz);
     }
   }
   last_sample_ms = now;
+  last_sample_us = now_us;
   have_sample = true;
   return true;
 }

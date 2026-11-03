@@ -1,0 +1,42 @@
+# VSBC camera + DIC scripts: the CAMERA environment (.venv-camera).
+# Raspberry Pi 5 (64-bit Pi OS Bookworm, Python 3.11) or a PC.
+#
+# Install into the separate camera environment, NOT the app's .venv:
+#   bash scripts/install_pi.sh --camera            # does all of this on the Pi
+#   python3 -m venv ~/VSBC_driver/.venv-camera
+#   ~/VSBC_driver/.venv-camera/bin/pip install -r camera/requirements.txt
+#
+# Why a separate environment: pyvale needs PyQt6, opencv-python (which brings
+# its own Qt) and NumPy 2. The app's .venv uses the Pi's apt PyQt5, NumPy 1 and
+# matplotlib. Mixed in one environment, pyqtgraph would switch the GUI to PyQt6,
+# two Qt libraries would load into one process, and apt's matplotlib would stop
+# working. The GUI runs everything camera-related in this environment, as
+# separate processes, so the two never meet.
+#
+# On the laptop, the existing conda "dic" environment works too: set
+#   [camera] python = "C:/Users/<you>/miniforge3/envs/dic/python.exe"
+# in config.toml.
+
+# Basler camera (the ARM64 wheel includes the pylon runtime)
+pypylon
+
+# DIC + strain. 2026.4.0 is the newest version with a prebuilt ARM64 (aarch64)
+# package for Python 3.11; newer versions would have to compile on the Pi.
+# The scripts were developed on 2026.10.2: "vsbc camera check" runs a small
+# synthetic DIC to confirm that 2026.4.0 accepts the same arguments.
+pyvale==2026.4.0
+
+# Images, preview windows (standalone use), crack tracker, video
+opencv-python
+
+# Usually installed with pyvale; listed so nothing is missing
+numpy
+scipy
+matplotlib
+pillow
+pandas
+
+# System packages / settings (not pip; install_pi.sh --camera does these):
+#   sudo apt install ffmpeg        # H.264 video.mp4 and the MP4 strain animation (GIF works without)
+#   usbcore.usbfs_memory_mb=1000 in /boot/firmware/cmdline.txt (Basler's USB 3 recommendation; reboot)
+#   a udev rule for Basler cameras (USB vendor 2676), so pypylon can open the camera without root

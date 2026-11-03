@@ -11,7 +11,7 @@ The [README](../README.md) covers setup and use.
 | Ball screw (×2) | 5 mm lead, coupled directly to the motor | 5 mm/rev → 0.0015625 mm per step at 3200 pulses/rev |
 | Stepper driver (×2) | Stepperonline Full Digital Stepper Driver DM542T, **Version 4.0** | 1.0–4.5 A, 18–50 VDC, opto-isolated PUL/DIR/ENA |
 | Controller | Arduino Mega 2560 | ATmega2560 @ 16 MHz; Timer1 compare interrupt for stepping |
-| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 10 or 80 samples/s (RATE jumper). Wired to the Mega (default) or to the Pi's GPIO pins. |
+| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 80 samples/s with its RATE jumper cut (ships at 10, see below). Wired to the Mega (default) or to the Pi's GPIO pins. |
 | Host | Raspberry Pi 5 | USB to the Mega; reads the load-cell amplifier with `source = "pi"` |
 | Motor power supply | _TODO: voltage / current rating_ | Must be within the DM542T's 18–50 VDC |
 
@@ -177,10 +177,29 @@ This is the default (`source = "mega"` under `[loadcell]` in `config.toml`, or s
 | HX711 E+ / E− | Load cell excitation + / − | Usually red / black |
 | HX711 A+ / A− | Load cell signal + / − | Usually green / white. Channel A, gain 128. |
 
-- **Sample rate.** The HX711 converts 10 or 80 times a second, set by its RATE pin. Most cheap boards tie RATE to GND (10/s); the SparkFun board has a jumper on the back (cut it for 80/s). This applies to both wirings. The firmware reacts to a break or overload within a few samples: a few tens of ms at 80/s, a few hundred at 10/s. `STATUS` reports the measured rate (`sps=`).
+- **Sample rate.** The HX711 converts 10 or 80 times a second, set by its RATE pin. Use 80: see [HX711 sample rate](#hx711-sample-rate-cut-the-rate-jumper-for-80s) below. This applies to both wirings. `STATUS` reports the measured rate (`sps=`).
 - Keep the load-cell wires short and twisted, and away from the motor cables.
 - DT is read with the internal pull-up enabled. If the HX711 is missing, DT stays high, the firmware reports "load cell not responding", and manual moves still work.
 - **Check it** with `vsbc loadcell` (raw counts for 5 s). When nothing arrives, it and `?` tell the two failures apart: DT never goes low (no conversions: VCC/VDD, GND or DT not on D26), or DT is still low after the 25 clock pulses so every reading is thrown away (CLK not on D27, or VDD missing). `STATUS lcbad=` counts the thrown-away readings.
+
+### HX711 sample rate: cut the RATE jumper for 80/s
+
+The SparkFun HX711 breakout ships at **10 readings/s**: a solder jumper labelled RATE on the back of the board ties the chip's RATE pin to the 10/s setting. **Cutting that jumper gives 80 readings/s.** The app expects 80 (`rate_hz = 80` under `[loadcell]`), for three reasons:
+
+- **Camera:** each load reading gets one saved camera frame (1:1 pairing), so 80/s gives 8 times as many frames with a load value.
+- **Stops:** the firmware reacts to a break or an overload within a few readings: a few tens of ms at 80/s, a few hundred ms at 10/s.
+- **Averaging:** each reading is noisier at 80/s (the HX711 datasheet gives roughly twice the noise), but TARE and CAL average for 2 s, which is 160 readings instead of 20, so the averaged result is better than at 10/s.
+
+To cut it:
+
+1. Unplug the board (or switch the tester off).
+2. On the back of the breakout, find the two pads marked **RATE**. The trace that joins them is thin and hard to see under the red solder mask.
+3. Cut that trace with a sharp hobby knife, in several light strokes, until a continuity tester shows the two pads are no longer connected. Do not cut into neighbouring traces.
+4. Power up and check: `vsbc loadcell`, or `?` in the Serial Monitor, should report about 80 samples/s. `STATUS sps=` shows the same, and the app warns at connect when the measured rate does not match `rate_hz`.
+
+To go back to 10/s, bridge the two pads with a blob of solder and set `rate_hz = 10`. Other HX711 boards usually tie RATE straight to GND on the board. They need that pin lifted and pulled up to the logic supply (VDD) for 80/s.
+
+After the change, measure `load_delay_ms` (Camera panel) again with a tap test. The HX711's filter delays each reading by about two conversion periods: about 25 ms at 80/s, against about 200 ms at 10/s.
 
 ### Pi ↔ Mega
 

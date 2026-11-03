@@ -31,8 +31,9 @@ void hostSample(long raw);
 void sourceChanged();
 unsigned long droppedLines();
 
-// Starts averaging AVERAGE_SAMPLES samples; the OK/ERR reply is printed when
-// done. Returns false (and starts nothing) if the load cell is not responding.
+// Starts averaging the samples of AVERAGE_MS (at least AVERAGE_MIN_SAMPLES);
+// the OK/ERR reply is printed when done. Returns false (and starts nothing) if
+// the load cell is not responding.
 bool startAverage(AvgKind kind, float known_n);
 bool averaging();
 

@@ -1,6 +1,6 @@
 """In-process stand-in for the Mega running vsbc_firmware.
 
-It speaks protocol v2 (docs/protocol.md) through the same transport interface
+It speaks protocol v3 (docs/protocol.md) through the same transport interface
 as a pyserial port, so the GUI, the CLI, calibration and the tests all run
 without hardware. The command handling and safety logic mirror
 firmware/vsbc_firmware (commands.cpp, tester.cpp, motion.cpp): when you change
@@ -34,7 +34,8 @@ MAX_STEP_RATE_HZ = 120.0 / 60.0 * STEPS_PER_REV
 MIN_RATE_MM_S = 0.002
 DEFAULT_RATE_MM_S = 0.5
 TIMER_MAX_STEP_RATE_HZ = 20000.0
-AVERAGE_SAMPLES = 16
+AVERAGE_S = 2.0                 # TARE / CAL average this long (config.h AVERAGE_MS)...
+AVERAGE_MIN_SAMPLES = 16        # ...and at least this many samples
 MIN_CAL_COUNTS = 1000
 LOADCELL_TIMEOUT_S = 0.5
 PROGRESS_INTERVAL_S = 0.5
@@ -138,7 +139,7 @@ class SimulatedMega:
         self._lock = threading.RLock()
         self._rx = ""
         self._rng = random.Random(seed)
-        self._t0 = time.monotonic()
+        self._t0 = time.perf_counter()        # monotonic() ticks in 15.6 ms steps on Windows before Python 3.13
         self._closed = threading.Event()
 
         # Physical world
@@ -276,7 +277,7 @@ class SimulatedMega:
 
     # --------------------------------------------------------------- helpers --
     def _now(self) -> float:
-        return time.monotonic()
+        return time.perf_counter()
 
     def _emit(self, line: str) -> None:
         self._out.put(line)
@@ -348,13 +349,13 @@ class SimulatedMega:
     # ------------------------------------------------------------- main loop --
     def _run(self) -> None:
         period = 1.0 / self.sample_rate_hz
-        next_t = time.monotonic()
+        next_t = self._now()
         while not self._closed.is_set():
             next_t += period
-            delay = next_t - time.monotonic()
+            delay = next_t - self._now()
             if delay <= 0:
                 # Fell behind: skip ahead rather than bunching samples (a real HX711 never does that).
-                next_t = time.monotonic() + period
+                next_t = self._now() + period
                 delay = period
             if self._closed.wait(delay):
                 break
@@ -400,7 +401,7 @@ class SimulatedMega:
             self.lc_alive = True
             self._emit("EVT LOADCELL state=OK")
         if self.avg is not None:
-            self._collect_average(raw)
+            self._collect_average(raw, now)
         if self.move is not None:
             self._check_safety(raw, now)
         else:
@@ -446,10 +447,11 @@ class SimulatedMega:
         self.last_overload_warn = now
         self._emit(f"EVT OVERLOAD load={self.filt_load:.3f}")
 
-    def _collect_average(self, raw: int) -> None:
+    def _collect_average(self, raw: int, now: float) -> None:
+        started = self.avg.setdefault("t0", now)
         self.avg["samples"].append(raw)
         samples = self.avg["samples"]
-        if len(samples) < AVERAGE_SAMPLES:
+        if len(samples) < AVERAGE_MIN_SAMPLES or now - started < AVERAGE_S:
             return
         kind, known = self.avg["kind"], self.avg["known"]
         self.avg = None
@@ -470,7 +472,9 @@ class SimulatedMega:
     def _host_sample(self, raw: int, now: float) -> None:
         if not self.params["lc_host"]:
             return
-        if self.last_sample_t is not None and now > self.last_sample_t:
+        if self.last_sample_t is not None and now - self.last_sample_t > LOADCELL_TIMEOUT_S:
+            self.host_rate_hz = 0.0           # after a gap: measure again from the next sample
+        elif self.last_sample_t is not None and now > self.last_sample_t:
             inst = 1.0 / (now - self.last_sample_t)
             self.host_rate_hz = inst if self.host_rate_hz == 0 else self.host_rate_hz + 0.1 * (inst - self.host_rate_hz)
         self._on_sample(raw, now)
@@ -516,8 +520,8 @@ class SimulatedMega:
         self.last_emit = now
         load = self.last_load if self.lc_alive else NAN
         raw = self.last_raw if self.lc_alive else 0
-        t_ms = int((now - self._t0) * 1000)
-        self._emit(f"D {t_ms} {self._position(now):.4f} {fmt(load, 3)} {raw} {self._state_char()}")
+        t_ms = (now - self._t0) * 1000
+        self._emit(f"D {t_ms:.3f} {self._position(now):.4f} {fmt(load, 3)} {raw} {self._state_char()}")
 
     # ----------------------------------------------------- motion.cpp mirror --
     def _start_move(self, target: float, mode: str) -> str | None:
@@ -677,7 +681,7 @@ class SimulatedMega:
         for text in (
             f"VSBC tensile tester firmware {FIRMWARE_VERSION} (simulator)",
             "Commands: RATE MOVE GOTO HOME RUN STOP ZERO TARE CAL STATUS GET SET SAVE DEFAULTS STREAM MOTORS LC ID PING HELP",
-            "Data: D <t_ms> <pos_mm> <load_N> <raw> <I|M|R>",
+            "Data: D <t_ms> <pos_mm> <load_N> <raw> <I|M|R>  (t_ms to 0.001 ms)",
             f"Load cell: {'OK' if self.lc_alive else 'not responding: ' + self.loadcell_reason()}",
         ):
             self._emit(f"# {text}")

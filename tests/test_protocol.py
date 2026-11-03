@@ -6,9 +6,10 @@ from vsbc.protocol import Event, Info, ProtocolError, Reply, Sample, format_comm
 
 
 def test_data_line():
-    s = parse_line("D 123456 12.3450 87.512 1419842 R")
-    assert s == Sample(123456, 12.345, 87.512, 1419842, "R")
+    s = parse_line("D 123456.789 12.3450 87.512 1419842 R")
+    assert s == Sample(123456.789, 12.345, 87.512, 1419842, "R")
     assert s.moving
+    assert parse_line("D 123456 12.3450 87.512 1419842 R").t_ms == 123456   # whole ms, as before protocol v3
 
 
 def test_data_line_without_load():
@@ -21,6 +22,8 @@ def test_malformed_data_line():
         parse_line("D 1 2 3")
     with pytest.raises(ProtocolError):
         parse_line("D x 0 0 0 I")
+    with pytest.raises(ProtocolError):
+        parse_line("D nan 0 0 0 I")
 
 
 def test_ok_reply_fields():

@@ -13,6 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
+from vsbc.units import Units
+
 _trapezoid = getattr(np, "trapezoid", None) or np.trapz
 
 
@@ -44,32 +46,44 @@ class Summary:
         d = asdict(self)
         return {k: (None if isinstance(v, float) and not math.isfinite(v) else v) for k, v in d.items()}
 
-    def to_text(self) -> str:
-        def f(value, fmt, unit=""):
-            return "-" if value is None or (isinstance(value, float) and not math.isfinite(value)) else f"{value:{fmt}}{unit}"
+    def to_text(self, units: Units | None = None) -> str:
+        """Readable summary, in newtons and millimetres unless other display units are given."""
+        u = units or Units()
 
+        def f(value, fmt, unit="", convert=None):
+            if value is None or (isinstance(value, float) and not math.isfinite(value)):
+                return "-"
+            return f"{convert(value) if convert else value:{fmt}}{unit}"
+
+        fd = f".{u.force_digits}f"
+        ld = f".{u.length_digits - 1}f"
+        force, length = (f" {u.force}", u.force_from_n), (f" {u.length}", u.length_from_mm)
         lines = [
             f"Stop reason:           {self.stop_reason or '-'}",
             f"Samples:               {self.n_samples} over {self.duration_s:.1f} s",
-            f"Peak load:             {f(self.peak_load_n, '.2f', ' N')} at {f(self.extension_at_peak_mm, '.3f', ' mm')}",
+            f"Peak load:             {f(self.peak_load_n, fd, *force)} at {f(self.extension_at_peak_mm, ld, *length)}",
             f"Break:                 "
-            + (f"{f(self.break_load_n, '.2f', ' N')} at {f(self.break_extension_mm, '.3f', ' mm')}"
+            + (f"{f(self.break_load_n, fd, *force)} at {f(self.break_extension_mm, ld, *length)}"
                if self.break_detected else "not detected"),
-            f"Max extension:         {f(self.max_extension_mm, '.3f', ' mm')}",
-            f"Apparent stiffness:    {f(self.stiffness_n_per_mm, '.1f', ' N/mm')}"
-            + (f" (R2 {self.stiffness_r2:.4f}, fit {self.fit_range_n[0]:.1f}-{self.fit_range_n[1]:.1f} N)"
+            f"Max extension:         {f(self.max_extension_mm, ld, *length)}",
+            f"Apparent stiffness:    {f(self.stiffness_n_per_mm, '.1f', ' ' + u.stiffness_label, u.stiffness_from_n_per_mm)}"
+            + (f" (R2 {self.stiffness_r2:.4f}, fit {u.force_from_n(self.fit_range_n[0]):.1f}-"
+               f"{u.force_from_n(self.fit_range_n[1]):.1f} {u.force})"
                if self.stiffness_n_per_mm is not None else ""),
-            f"Energy to peak / end:  {f(self.energy_to_peak_j, '.3f', ' J')} / {f(self.energy_to_end_j, '.3f', ' J')}",
+            f"Energy to peak / end:  {f(self.energy_to_peak_j, '.3f', ' ' + u.energy_label, u.energy_from_j)} / "
+            f"{f(self.energy_to_end_j, '.3f', ' ' + u.energy_label, u.energy_from_j)}",
         ]
+        stress_fmt = ".0f" if u.stress_label == "psi" else ".2f"
         if self.area_mm2:
+            area = "mm2" if u.length == "mm" else f"{u.length}2"
             lines += [
-                f"Area:                  {self.area_mm2:g} mm2",
-                f"UTS:                   {f(self.uts_mpa, '.2f', ' MPa')}",
+                f"Area:                  {u.area_from_mm2(self.area_mm2):g} {area}",
+                f"UTS:                   {f(self.uts_mpa, stress_fmt, ' ' + u.stress_label, u.stress_from_mpa)}",
             ]
         if self.area_mm2 and self.gauge_length_mm:
             lines += [
-                f"Gauge length:          {self.gauge_length_mm:g} mm",
-                f"Apparent modulus:      {f(self.modulus_mpa, '.0f', ' MPa')}",
+                f"Gauge length:          {u.length_from_mm(self.gauge_length_mm):g} {u.length}",
+                f"Apparent modulus:      {f(self.modulus_mpa, '.0f', ' ' + u.stress_label, u.stress_from_mpa)}",
                 f"Strain at peak:        {f(self.strain_at_peak, '.4f')}",
                 f"Elongation at break:   {f(self.elongation_at_break_pct, '.2f', ' %')}",
             ]
@@ -106,6 +120,39 @@ def find_break(load: np.ndarray, drop_pct: float, min_peak_n: float, confirm: in
         else:
             below = 0
     return None
+
+
+REVERSED_TENSION_NOTE = (
+    "Tension read as negative load while pulling: the load-cell calibration's sign is reversed "
+    "(Calibrate tab > Flip load sign). Break detection could not arm, and the peak load is not valid."
+)
+
+
+def tension_threshold_n(capacity_n: float | None) -> float:
+    """How far below zero the load must go before it counts as reversed: 2 N or 1 % of capacity."""
+    return max(2.0, 0.01 * capacity_n) if capacity_n else 2.0
+
+
+def tension_reads_negative(load_n, ext_mm, threshold_n: float = 2.0, run: int = 5) -> bool:
+    """True when pulling made the load go negative, i.e. the calibration's sign is reversed.
+
+    The load must stay below -threshold_n for `run` samples in a row while the
+    extension grows, and never rise above +threshold_n (a real tension test
+    that starts with a little compression is fine).
+    """
+    f = np.asarray(load_n, dtype=float)
+    e = np.asarray(ext_mm, dtype=float)
+    ok = np.isfinite(f) & np.isfinite(e)
+    f, e = f[ok], e[ok]
+    if f.size < run or f.max() > threshold_n:
+        return False
+    count = 0
+    for i in range(f.size):
+        rising = i == 0 or e[i] >= e[i - 1] - 1e-9
+        count = count + 1 if f[i] < -threshold_n and rising else 0
+        if count >= run:
+            return True
+    return False
 
 
 def fit_stiffness(ext: np.ndarray, load: np.ndarray, peak_index: int, lo_frac: float, hi_frac: float):

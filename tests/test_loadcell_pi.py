@@ -13,6 +13,15 @@ from vsbc.sim import Specimen
 from tests.conftest import FAST_SPECIMEN
 
 DOUT, SCK = 5, 6
+# A busy PC can pause a Python thread for longer than the real 50 us pulse
+# limit, which would discard readings at random: only the test of that limit
+# uses it.
+PATIENT_PULSE_NS = 10_000_000_000
+
+
+@pytest.fixture(autouse=True)
+def patient_pulses(monkeypatch):
+    monkeypatch.setattr(loadcell_pi, "MAX_PULSE_NS", PATIENT_PULSE_NS)
 
 
 class FakeLgpio:
@@ -101,7 +110,7 @@ def test_a_slow_clock_pulse_discards_the_reading_and_the_next(monkeypatch):
     hx = PiHX711(DOUT, SCK, lgpio=gpio)
     monkeypatch.setattr(loadcell_pi, "MAX_PULSE_NS", -1)     # every pulse counts as too slow
     assert hx.read() is None
-    monkeypatch.undo()
+    monkeypatch.setattr(loadcell_pi, "MAX_PULSE_NS", PATIENT_PULSE_NS)
     gpio.next_conversion(5001)
     assert hx.read() is None            # first reading after a possible power-down
     gpio.next_conversion(5002)

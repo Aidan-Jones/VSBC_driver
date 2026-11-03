@@ -10,8 +10,13 @@
     vsbc flash                compile + upload the firmware (arduino-cli)
     vsbc ports                list serial ports
     vsbc loadcell             check the load cell (on the Mega, or the Pi with source = "pi")
+    vsbc camera check         check the camera, the disk speed and pyvale
+    vsbc camera process <folder>   sync, video, DIC, strain and crack tips for a recording
 
-Add --sim to any hardware command to use the built-in simulator.
+Add --sim to any hardware command to use the built-in simulator (the GUI
+then simulates the camera too). Command-line values are in mm and N; the
+printed results use the display units ([units] in config.toml, or the
+Units tab's last choice).
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import subprocess
 import sys
 import threading
 import time
@@ -26,12 +32,13 @@ from dataclasses import asdict
 from pathlib import Path
 
 from vsbc import __version__
-from vsbc.config import LOADCELL_SOURCES, Config, load_config
+from vsbc.config import LOADCELL_SOURCES, REPO_ROOT, Config, load_config
 from vsbc.firmware import FirmwareToolError
 from vsbc.link import DeviceError, LinkClosed, PortNotFound, find_port, list_ports
 from vsbc.logs import setup_logging
-from vsbc.machine import FirmwareMismatch, Machine
+from vsbc.machine import FirmwareMismatch, Machine, loadcell_rate_problem
 from vsbc.procedures import PreflightError
+from vsbc.units import effective_units, units_from_dict
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +134,7 @@ def cmd_test(args, cfg: Config) -> int:
     spec = PullTestSpec.from_defaults(args.specimen, cfg.test, operator=args.operator, notes=args.notes, **overrides)
 
     m = _connect(args, cfg)
+    units = effective_units(cfg)
     try:
         last = [0.0]
 
@@ -134,9 +142,10 @@ def cmd_test(args, cfg: Config) -> int:
             now = time.monotonic()
             if now - last[0] >= 0.5:
                 last[0] = now
-                print(f"  t={sample.t_ms / 1000:8.2f} s   ext={ext:8.3f} mm   load={sample.load_n:9.2f} N", flush=True)
+                print(f"  t={sample.t_ms / 1000:8.2f} s   ext={units.format_length(ext):>14}   "
+                      f"load={units.format_force(sample.load_n):>12}", flush=True)
 
-        runner = PullTestRunner(m, spec, cfg, on_sample=on_sample)
+        runner = PullTestRunner(m, spec, cfg, on_sample=on_sample, units=units)
         warnings = runner.preflight()
         for warning in warnings:
             print(f"Warning: {warning}")
@@ -160,7 +169,9 @@ def cmd_test(args, cfg: Config) -> int:
             return 1
         print()
         if result.summary:
-            print(result.summary.to_text())
+            print(result.summary.to_text(units))
+        for warning in result.warnings:
+            print(f"Warning: {warning}")
         if result.error:
             print(f"Error: {result.error}", file=sys.stderr)
         print(f"\nFiles: {result.folder}")
@@ -169,13 +180,17 @@ def cmd_test(args, cfg: Config) -> int:
         m.disconnect()
 
 
-def _collect_load_points(cfg: Config, collect, sim=None) -> list:
+def _collect_load_points(cfg: Config, collect, sim=None, compression: bool = False) -> list:
     """The zero point, then one point per known load the operator enters.
 
     `collect()` returns (mean, std, n) of the raw counts over a few seconds.
+    With `compression` (weights placed on the load cell) the loads are stored
+    as negative forces, so the fit always reads tension as positive (the
+    break detection needs that).
     """
     from vsbc.calibration import LoadPoint, parse_load
 
+    sign = -1.0 if compression else 1.0
     mean, std, n = collect()
     points = [LoadPoint(0.0, mean, std, n, "zero")]
     idle_noise = std
@@ -185,7 +200,7 @@ def _collect_load_points(cfg: Config, collect, sim=None) -> list:
         if not text:
             break
         try:
-            force = parse_load(text, cfg.loadcell.gravity)
+            force = sign * parse_load(text, cfg.loadcell.gravity)
         except ValueError as e:
             print(f"  {e}")
             continue
@@ -215,7 +230,14 @@ def _fit_load_points(points: list, cfg: Config):
     return fit
 
 
-def _calibrate_load_no_mega(cfg: Config, seconds: float = 3.0) -> int:
+def _direction_text(compression: bool) -> str:
+    return ("Place the known loads ON the load cell (compression; they count as negative, so tension reads "
+            "positive)." if compression else
+            "Apply the known loads in the tension direction (for example hang weights). If you can only place "
+            "them on the load cell, use --compression.")
+
+
+def _calibrate_load_no_mega(cfg: Config, seconds: float = 3.0, compression: bool = False) -> int:
     """Calibrate with only the Pi and the HX711. The Mega gets the result the next time the app connects to it."""
     from vsbc.calibration import collect_raw_reader, save_pending_load, save_record
     from vsbc.loadcell_pi import LoadCellUnavailable, PiHX711
@@ -227,10 +249,9 @@ def _calibrate_load_no_mega(cfg: Config, seconds: float = 3.0) -> int:
         print(f"Cannot read the load cell on the Pi's GPIO pins: {e}", file=sys.stderr)
         return 1
     try:
-        print("Load-cell calibration without the Mega. Apply the known loads in the tension direction "
-              "(for example hang weights).")
+        print(f"Load-cell calibration without the Mega. {_direction_text(compression)}")
         input("Remove all load, then press Enter... ")
-        points = _collect_load_points(cfg, lambda: collect_raw_reader(reader, seconds))
+        points = _collect_load_points(cfg, lambda: collect_raw_reader(reader, seconds), compression=compression)
     finally:
         reader.close()
     fit = _fit_load_points(points, cfg)
@@ -248,17 +269,17 @@ def _calibrate_load_no_mega(cfg: Config, seconds: float = 3.0) -> int:
     return 0
 
 
-def _calibrate_load(m: Machine, cfg: Config) -> int:
+def _calibrate_load(m: Machine, cfg: Config, compression: bool = False) -> int:
     from vsbc.calibration import apply_load_fit, collect_raw, save_record
 
     if not m.status().loadcell_ok:
         print(f"Load cell not responding: check the HX711 wiring to the {'Pi' if m.loadcell_source == 'pi' else 'Mega'}.")
         return 1
-    print("Load-cell calibration. Apply the known loads in the tension direction (for example hang weights).")
+    print(f"Load-cell calibration. {_direction_text(compression)}")
     input("Remove all load, then press Enter to tare... ")
     reply = m.tare()
     print(f"  Tare offset {reply.get('offset')} counts, noise {reply.get('noise')} counts")
-    points = _collect_load_points(cfg, lambda: collect_raw(m), sim=m.sim)
+    points = _collect_load_points(cfg, lambda: collect_raw(m), sim=m.sim, compression=compression)
     fit = _fit_load_points(points, cfg)
     if fit is None:
         return 1
@@ -320,16 +341,16 @@ def cmd_calibrate(args, cfg: Config) -> int:
     if args.no_mega:
         if args.what != "load":
             raise ValueError("--no-mega only works with 'calibrate load': the travel calibration moves the motors")
-        return _calibrate_load_no_mega(cfg)
+        return _calibrate_load_no_mega(cfg, compression=args.compression)
     m = _connect(args, cfg)
     try:
-        return _calibrate_load(m, cfg) if args.what == "load" else _calibrate_travel(m, cfg)
+        return _calibrate_load(m, cfg, args.compression) if args.what == "load" else _calibrate_travel(m, cfg)
     finally:
         m.disconnect()
 
 
 def cmd_analyze(args, cfg: Config) -> int:
-    from vsbc.analysis import analyze, load_csv
+    from vsbc.analysis import REVERSED_TENSION_NOTE, analyze, load_csv, tension_reads_negative, tension_threshold_n
     from vsbc.plotting import save_test_plot
 
     path = Path(args.path)
@@ -339,6 +360,7 @@ def cmd_analyze(args, cfg: Config) -> int:
     meta_path = folder / "meta.json"
     meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
     spec = meta.get("specimen") or {}
+    units = units_from_dict(meta.get("units"))          # the units the test was run with
     area = args.area or spec.get("area_mm2")
     gauge = args.gauge or spec.get("gauge_length_mm")
     break_drop = args.break_drop if args.break_drop is not None else spec.get("break_drop_pct", 40.0)
@@ -347,16 +369,88 @@ def cmd_analyze(args, cfg: Config) -> int:
     summary = analyze(cols["time_s"], ext, load, area_mm2=area, gauge_length_mm=gauge,
                       break_drop_pct=break_drop, break_min_n=break_min,
                       fit_lo_frac=args.fit[0], fit_hi_frac=args.fit[1], stop_reason=meta.get("stop_reason"))
+    text = summary.to_text(units)
+    if tension_reads_negative(load, ext, tension_threshold_n(cfg.loadcell.capacity_n)):
+        text += f"\n\nWarning: {REVERSED_TENSION_NOTE}"
     (folder / "summary.json").write_text(json.dumps(summary.to_dict(), indent=2))
-    (folder / "summary.txt").write_text(f"Specimen: {spec.get('specimen_id', folder.name)}\n\n{summary.to_text()}\n")
+    (folder / "summary.txt").write_text(f"Specimen: {spec.get('specimen_id', folder.name)}\n\n{text}\n")
     stress = load / area if area else None
     strain = ext / gauge if gauge else None
     save_test_plot(folder / "plot.png", ext, load, summary, title=str(spec.get("specimen_id", folder.name)),
                    stress_mpa=stress if area and gauge else None,
-                   strain=strain if area and gauge else None)
-    print(summary.to_text())
+                   strain=strain if area and gauge else None, units=units)
+    print(text)
     print(f"\nUpdated {folder / 'summary.json'} and plot.png")
     return 0
+
+
+def cmd_camera(args, cfg: Config) -> int:
+    """`camera check` and `camera process`: both run in the camera environment."""
+    from vsbc.camera.client import camera_env, camera_python
+
+    python = camera_python(cfg)
+    if args.camera_command == "check":
+        print(f"Camera environment: {python}\nCamera scripts: {cfg.camera_dir}\nChecking (about 30 s)...", flush=True)
+        cmd = [python, "-m", "vsbc.camera.jobs", "check", "--camera-dir", str(cfg.camera_dir),
+               "--output-dir", str(cfg.output_dir)] + (["--sim"] if args.sim else [])
+        return subprocess.call(cmd, env=camera_env(), cwd=str(REPO_ROOT))
+    return _camera_process(args, cfg)
+
+
+def _camera_process(args, cfg: Config) -> int:
+    from vsbc.camera.postprocess import Options, PostProcessor
+    from vsbc.camera.scripts import literal_settings
+    from vsbc.camera.sync import sync_camera, sync_test
+
+    folder = Path(args.folder).resolve()
+    if (folder / "camera" / "frames.csv").is_file():
+        test, run = folder, folder / "camera"
+    elif (folder / "frames.csv").is_file():
+        run = folder
+        test = folder.parent if folder.name == "camera" and (folder.parent / "data.csv").is_file() else None
+    else:
+        print(f"{folder} has no camera recording (frames.csv).", file=sys.stderr)
+        return 1
+    delay = cfg.camera.load_delay_ms if args.load_delay_ms is None else args.load_delay_ms
+    if (run / "samples.csv").is_file() or (run / "camera_clock.csv").is_file():
+        summary = sync_test(test, delay) if test is not None else sync_camera(run, None, {}, delay)
+        pairing = summary.get("data_csv_pairing") or {}
+        print(f"Synced {summary['frames_saved']} saved frames to "
+              + (f"data.csv (95 % of rows within {pairing['frame_dt_ms_p95']:.1f} ms of a frame)" if pairing
+                 else "the camera clock"))
+    options = Options.from_config(cfg)
+    if args.only:
+        wanted = {k.strip() for k in args.only.split(",") if k.strip()}
+        options.make_video, options.run_dic = "video" in wanted, "dic" in wanted
+        options.run_strain = "strain" in wanted
+        options.crack_tip_image, options.crack_tip_opening = "crack_image" in wanted, "crack_opening" in wanted
+    pp = PostProcessor(cfg)
+    jobs = pp.jobs_for(run, test, options, literal_settings(cfg.camera_dir))
+    for note in options.notes:
+        print(note)
+    if not jobs:
+        print("Nothing to do.")
+        return 0
+    pp.add(jobs)
+    last = ""
+    try:
+        while pp.busy:
+            pp.poll()
+            text = pp.summary()
+            if text != last:
+                print(text, flush=True)
+                last = text
+            time.sleep(0.5)
+        pp.poll()
+    except KeyboardInterrupt:
+        pp.cancel()
+        print("Cancelled.")
+        return 130
+    print()
+    for job in pp.done:
+        print(f"{'OK ' if job.ok else 'ERR'} {job.title}: {job.result}")
+    print(f"Logs: {run / 'postprocess.log'}")
+    return 0 if all(job.ok for job in pp.done) else 1
 
 
 def cmd_flash(args, cfg: Config) -> int:
@@ -391,8 +485,8 @@ def _loadcell_check_mega(args, cfg: Config) -> int:
     m = Machine(cfg)
     m.connect(args.port, sim=args.sim)
     try:
-        for warning in m.warnings:   # "not responding" is the conclusion below; the position does not matter here
-            if not warning.startswith("Load cell not responding") and "referenced" not in warning:
+        for warning in m.warnings:   # "not responding" and the rate are the conclusion below; the position does not matter here
+            if not warning.startswith(("Load cell not responding", "The load cell sends")) and "referenced" not in warning:
                 print(f"Warning: {warning}")
         print(f"Mega on {m.port}: {m.info.name} {m.info.version}, load cell source {m.command('ID').get('loadcell', '?')}. "
               f"Raw counts for {args.seconds:g} s:")
@@ -417,6 +511,9 @@ def _loadcell_check_mega(args, cfg: Config) -> int:
             print(m.loadcell_problem(status))
             return 1
         print(f"{len(samples)} readings in {args.seconds:g} s; the Mega measures {status.sample_rate_hz:.1f} per second.")
+        problem = loadcell_rate_problem(status.sample_rate_hz, cfg)
+        if problem:
+            print(problem)
         return 0
     finally:
         m.disconnect()
@@ -454,6 +551,9 @@ def _loadcell_check_pi(args, cfg: Config) -> int:
     total = good + reader.discarded
     print(f"{good} readings in {elapsed:.1f} s = {good / elapsed:.1f} per second; "
           f"{reader.discarded} discarded ({100 * reader.discarded / total:.1f} %).")
+    problem = loadcell_rate_problem(total / elapsed, cfg)
+    if problem:
+        print(problem)
     return 0
 
 
@@ -500,6 +600,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("what", choices=["load", "travel"])
     c.add_argument("--no-mega", action="store_true",
                    help="calibrate the load cell on the Pi alone; the Mega gets the result at the next connection")
+    c.add_argument("--compression", action="store_true",
+                   help="the known loads are placed on the load cell (compression); tension still reads positive")
 
     a = sub.add_parser("analyze", help="recompute the summary and plot of a test")
     a.add_argument("path", help="test folder or its data.csv")
@@ -522,12 +624,22 @@ def build_parser() -> argparse.ArgumentParser:
     lc = sub.add_parser("loadcell", help="check the load cell (raw counts, sample rate) where config.toml says it is wired")
     hardware(lc)
     lc.add_argument("--seconds", type=float, default=5.0, help="how long to read")
+
+    cam = sub.add_parser("camera", help="the DIC camera: check the setup, or post-process a recording")
+    cam_sub = cam.add_subparsers(dest="camera_command", required=True)
+    check = cam_sub.add_parser("check", help="camera frame rate and dropped frames, disk write speed, pyvale DIC")
+    check.add_argument("--sim", action="store_true", help="use the simulated camera")
+    process = cam_sub.add_parser("process", help="sync, video, DIC, strain and crack tips for a test folder")
+    process.add_argument("folder", help="a test folder, its camera/ folder, or a recording from the Camera tab")
+    process.add_argument("--only", help="comma-separated: video,dic,strain,crack_image,crack_opening")
+    process.add_argument("--load-delay-ms", type=float, help="load-cell delay for the sync (default: config.toml)")
     return p
 
 
 COMMANDS = {
     "gui": cmd_gui, "terminal": cmd_terminal, "test": cmd_test, "calibrate": cmd_calibrate,
     "analyze": cmd_analyze, "flash": cmd_flash, "ports": cmd_ports, "loadcell": cmd_loadcell,
+    "camera": cmd_camera,
 }
 
 

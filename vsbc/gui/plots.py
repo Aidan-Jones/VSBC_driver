@@ -1,4 +1,8 @@
-"""Live plots: load vs extension for the current test, and load / position vs time."""
+"""Live plots: load vs extension for the current test, and load / position vs time.
+
+Data are kept in newtons and millimetres and converted to the display units
+when drawn, so changing the units redraws everything at once.
+"""
 
 from __future__ import annotations
 
@@ -6,17 +10,17 @@ from collections import deque
 
 from vsbc.gui.common import GrowingArray, QtWidgets, np, pg
 from vsbc.protocol import Sample
+from vsbc.units import Units
 
 
 class LivePlots(QtWidgets.QTabWidget):
-    def __init__(self, window_s: float = 60.0, parent=None):
+    def __init__(self, window_s: float = 60.0, parent=None, units: Units | None = None):
         super().__init__(parent)
         pg.setConfigOptions(antialias=True, background="w", foreground="k")
+        self.units = units or Units()
 
         # Load vs extension (the test)
         self.test_plot = pg.PlotWidget()
-        self.test_plot.setLabel("bottom", "Extension", units="mm")
-        self.test_plot.setLabel("left", "Load", units="N")
         self.test_plot.showGrid(x=True, y=True, alpha=0.3)
         self.test_plot.setDownsampling(auto=True, mode="peak")
         self.test_plot.setClipToView(True)
@@ -27,10 +31,8 @@ class LivePlots(QtWidgets.QTabWidget):
         # Load and position vs time (rolling window)
         self.time_widget = pg.GraphicsLayoutWidget()
         self.load_plot = self.time_widget.addPlot(row=0, col=0)
-        self.load_plot.setLabel("left", "Load", units="N")
         self.load_plot.showGrid(x=True, y=True, alpha=0.3)
         self.pos_plot = self.time_widget.addPlot(row=1, col=0)
-        self.pos_plot.setLabel("left", "Position", units="mm")
         self.pos_plot.setLabel("bottom", "Time", units="s")
         self.pos_plot.showGrid(x=True, y=True, alpha=0.3)
         self.pos_plot.setXLink(self.load_plot)
@@ -42,11 +44,28 @@ class LivePlots(QtWidgets.QTabWidget):
         self._t = deque(maxlen=n)
         self._load = deque(maxlen=n)
         self._pos = deque(maxlen=n)
-        self._t0_ms: int | None = None
-        self._last_ms: int | None = None
+        self._t0_ms: float | None = None
+        self._last_ms: float | None = None
         self._ext = GrowingArray()
         self._test_load = GrowingArray()
+        self._peak: tuple[float, float] | None = None
         self._dirty = False
+        self.apply_units(self.units)
+
+    def apply_units(self, units: Units) -> None:
+        """Relabel the axes and redraw in the new units. The unit goes in the label, without
+        pyqtgraph's automatic SI prefix (which would turn inches into "min" and mm into "mmm")."""
+        self.units = units
+        for plot, side, text, unit in ((self.test_plot.getPlotItem(), "bottom", "Extension", units.length),
+                                       (self.test_plot.getPlotItem(), "left", "Load", units.force),
+                                       (self.load_plot, "left", "Load", units.force),
+                                       (self.pos_plot, "left", "Position", units.length)):
+            axis = plot.getAxis(side)
+            axis.enableAutoSIPrefix(False)
+            plot.setLabel(side, f"{text} ({unit})")
+        if self._peak is not None:
+            self.mark_peak(*self._peak)
+        self._dirty = True
 
     def add_sample(self, s: Sample, extension_mm: float | None = None) -> None:
         if self._last_ms is None or s.t_ms < self._last_ms:
@@ -66,20 +85,31 @@ class LivePlots(QtWidgets.QTabWidget):
     def begin_test(self) -> None:
         self._ext.clear()
         self._test_load.clear()
+        self._peak = None
         self.peak_marker.setData([], [])
-        self.setCurrentIndex(0)
+        # Show load - extension, unless another tab (the camera) was chosen on purpose.
+        if self.currentWidget() in (self.test_plot, self.time_widget):
+            self.setCurrentWidget(self.test_plot)
         self._dirty = True
 
     def mark_peak(self, extension_mm: float, load_n: float) -> None:
         if np.isfinite(load_n):
-            self.peak_marker.setData([extension_mm], [load_n])
+            self._peak = (extension_mm, load_n)
+            self.peak_marker.setData([self.units.length_from_mm(extension_mm)], [self.units.force_from_n(load_n)])
 
     def refresh(self) -> None:
         if not self._dirty:
             return
         self._dirty = False
+        u = self.units
         if self._t:
             t = np.fromiter(self._t, float, len(self._t))
-            self.load_curve.setData(t, np.fromiter(self._load, float, len(self._load)), connect="finite")
-            self.pos_curve.setData(t, np.fromiter(self._pos, float, len(self._pos)), connect="finite")
-        self.test_curve.setData(self._ext.view(), self._test_load.view(), connect="finite")
+            self.load_curve.setData(t, u.force_from_n(np.fromiter(self._load, float, len(self._load))),
+                                    connect="finite")
+            self.pos_curve.setData(t, u.length_from_mm(np.fromiter(self._pos, float, len(self._pos))),
+                                   connect="finite")
+        if u.is_default:
+            self.test_curve.setData(self._ext.view(), self._test_load.view(), connect="finite")
+        else:
+            self.test_curve.setData(u.length_from_mm(self._ext.view()), u.force_from_n(self._test_load.view()),
+                                    connect="finite")

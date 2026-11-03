@@ -13,10 +13,13 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from vsbc.analysis import Summary
+from vsbc.units import Units
 
 
 def save_test_plot(path: Path, ext_mm, load_n, summary: Summary, title: str = "",
-                   stress_mpa=None, strain=None) -> Path:
+                   stress_mpa=None, strain=None, units: Units | None = None) -> Path:
+    """Load vs extension (and stress vs strain), drawn in the given display units (default N, mm)."""
+    u = units or Units()
     ext = np.asarray(ext_mm, dtype=float)
     load = np.asarray(load_n, dtype=float)
     with_stress = stress_mpa is not None and strain is not None and np.isfinite(np.asarray(stress_mpa, dtype=float)).any()
@@ -26,16 +29,17 @@ def save_test_plot(path: Path, ext_mm, load_n, summary: Summary, title: str = ""
     axes = fig.subplots(1, 2 if with_stress else 1, squeeze=False)[0]
 
     ax = axes[0]
-    ax.plot(ext, load, lw=1.2, color="#1f5fa8")
-    ax.set_xlabel("Extension (mm)")
-    ax.set_ylabel("Load (N)")
+    ax.plot(u.length_from_mm(ext), u.force_from_n(load), lw=1.2, color="#1f5fa8")
+    ax.set_xlabel(f"Extension ({u.length})")
+    ax.set_ylabel(f"Load ({u.force})")
     ax.grid(True, alpha=0.3)
     if np.isfinite(summary.peak_load_n):
-        ax.plot([summary.extension_at_peak_mm], [summary.peak_load_n], "o", color="#c0392b",
-                label=f"Peak {summary.peak_load_n:.1f} N")
+        ax.plot([u.length_from_mm(summary.extension_at_peak_mm)], [u.force_from_n(summary.peak_load_n)], "o",
+                color="#c0392b", label=f"Peak {u.force_from_n(summary.peak_load_n):.1f} {u.force}")
     if summary.break_detected:
-        ax.plot([summary.break_extension_mm], [summary.break_load_n], "x", ms=9, mew=2, color="#333333",
-                label=f"Break at {summary.break_extension_mm:.3f} mm")
+        ax.plot([u.length_from_mm(summary.break_extension_mm)], [u.force_from_n(summary.break_load_n)], "x",
+                ms=9, mew=2, color="#333333",
+                label=f"Break at {u.length_from_mm(summary.break_extension_mm):.{u.length_digits - 1}f} {u.length}")
     if summary.stiffness_n_per_mm is not None and summary.fit_range_n is not None:
         lo, hi = summary.fit_range_n
         mask = np.isfinite(load) & (load >= lo) & (load <= hi)
@@ -43,16 +47,18 @@ def save_test_plot(path: Path, ext_mm, load_n, summary: Summary, title: str = ""
             e0 = ext[mask]
             b = float(np.mean(load[mask] - summary.stiffness_n_per_mm * e0))
             xs = np.array([max(e0.min() - 0.2 * np.ptp(e0), 0), e0.max() + 0.5 * np.ptp(e0)])
-            ax.plot(xs, summary.stiffness_n_per_mm * xs + b, "--", lw=1, color="#27ae60",
-                    label=f"Stiffness {summary.stiffness_n_per_mm:.0f} N/mm")
+            ax.plot(u.length_from_mm(xs), u.force_from_n(summary.stiffness_n_per_mm * xs + b), "--", lw=1,
+                    color="#27ae60",
+                    label=f"Stiffness {u.stiffness_from_n_per_mm(summary.stiffness_n_per_mm):.0f} {u.stiffness_label}")
     ax.legend(loc="best", fontsize=8)
     ax.set_title("Load vs extension")
 
     if with_stress:
         ax2 = axes[1]
-        ax2.plot(np.asarray(strain, dtype=float), np.asarray(stress_mpa, dtype=float), lw=1.2, color="#8e44ad")
+        ax2.plot(np.asarray(strain, dtype=float), u.stress_from_mpa(np.asarray(stress_mpa, dtype=float)), lw=1.2,
+                 color="#8e44ad")
         ax2.set_xlabel("Strain (crosshead, mm/mm)")
-        ax2.set_ylabel("Stress (MPa)")
+        ax2.set_ylabel(f"Stress ({u.stress_label})")
         ax2.grid(True, alpha=0.3)
         ax2.set_title("Engineering stress vs strain")
 

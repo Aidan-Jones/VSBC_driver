@@ -9,8 +9,8 @@
 #include <Arduino.h>
 
 #define FIRMWARE_NAME    "vsbc_firmware"
-#define FIRMWARE_VERSION "2.2.0"
-#define PROTOCOL_VERSION 2
+#define FIRMWARE_VERSION "2.3.0"
+#define PROTOCOL_VERSION 3
 
 const unsigned long SERIAL_BAUD = 115200;
 
@@ -61,10 +61,16 @@ const uint8_t HX711_SCK_PIN  = 27;   // HX711 SCK (PA5)
 // 2 = channel B gain 32, 3 = channel A gain 64.
 const uint8_t HX711_GAIN_PULSES = 1;
 
+// The HX711 converts 10 or 80 times a second, set by its RATE pin. SparkFun's
+// board ships at 10; cutting its RATE jumper gives 80 (docs/hardware.md).
+// Nothing here depends on which: the timing below works at both.
+
 // No sample for this long = load cell lost.
 const unsigned long LOADCELL_TIMEOUT_MS = 500;
-// Samples averaged by TARE and CAL.
-const uint8_t AVERAGE_SAMPLES = 16;
+// TARE and CAL average the samples of AVERAGE_MS, and at least
+// AVERAGE_MIN_SAMPLES: 160 samples at 80 per second, 20 at 10 per second.
+const unsigned long AVERAGE_MS = 2000;
+const uint8_t AVERAGE_MIN_SAMPLES = 16;
 // CAL needs at least this many counts of change from the tare value.
 const long MIN_CAL_COUNTS = 1000;
 

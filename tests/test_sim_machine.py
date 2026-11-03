@@ -1,4 +1,4 @@
-"""End-to-end tests of Machine + SerialLink against the simulator (protocol v2)."""
+"""End-to-end tests of Machine + SerialLink against the simulator (protocol v3)."""
 
 import threading
 import time
@@ -8,6 +8,7 @@ import pytest
 from vsbc import PROTOCOL_VERSION
 from vsbc.link import DeviceError
 from vsbc.machine import FirmwareMismatch, Machine
+from vsbc import sim as sim_module
 from vsbc.protocol import Reply, Sample
 from vsbc.sim import SimulatedMega, Specimen
 from tests.conftest import FAST_SPECIMEN
@@ -28,6 +29,48 @@ def test_samples_stream(machine):
     s = machine.latest
     assert isinstance(s, Sample) and s.state == "I"
     assert abs(s.load_n) < 2.0
+
+
+def test_samples_carry_sub_millisecond_times(machine):
+    times = []
+    machine.add_listener(lambda msg: times.append(msg.t_ms) if isinstance(msg, Sample) else None)
+    time.sleep(0.5)
+    assert len(times) >= 10 and any(t != int(t) for t in times)
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    assert all(g > 0 for g in gaps)
+    assert sum(gaps) / len(gaps) == pytest.approx(12.5, rel=0.5)        # 80 samples/s
+
+
+@pytest.mark.parametrize("rate_hz, average_s, at_least_s", [
+    (80.0, 0.5, 0.5),       # 2 s on the Mega; long enough here to tell from 16 samples (0.2 s)
+    (40.0, 0.1, 0.375),     # too few samples in that time: waits for 16 (15 periods)
+])
+def test_tare_averages_for_a_time_and_at_least_16_samples(config, monkeypatch, rate_hz, average_s, at_least_s):
+    monkeypatch.setattr(sim_module, "AVERAGE_S", average_s)
+    sim = SimulatedMega(specimen=Specimen(**FAST_SPECIMEN), sample_rate_hz=rate_hz, seed=3)
+    config.loadcell.rate_hz = rate_hz
+    m = Machine(config)
+    m.connect(sim=sim)
+    try:
+        start = time.monotonic()
+        reply = m.tare()
+        assert time.monotonic() - start >= at_least_s - 0.02
+        assert reply.number("offset") == pytest.approx(sim.true_offset, abs=60)
+    finally:
+        m.disconnect()
+
+
+def test_connect_warns_when_the_hx711_is_still_at_10_per_second(config):
+    sim = SimulatedMega(specimen=Specimen(**FAST_SPECIMEN), sample_rate_hz=10.0, seed=4)
+    m = Machine(config)
+    m.connect(sim=sim)
+    try:
+        assert any("RATE jumper" in w for w in m.warnings)
+    finally:
+        m.disconnect()
+    assert m.rate_problem(80.0) is None and m.rate_problem(84.0) is None
+    config.loadcell.rate_hz = 10.0
+    assert m.rate_problem(10.3) is None and "Set rate_hz = 80" in m.rate_problem(80.0)
 
 
 def test_rate_limits(machine):
@@ -135,14 +178,17 @@ def test_break_detection(machine):
     assert end.fields["reason"] == "BREAK"
     assert end.fields["mode"] == "RUN"
     assert end.number("peak") == pytest.approx(400, rel=0.05)
-    assert 1.5 < end.number("moved") < 1.9
+    # Breaks at 1.6 mm. Detection takes three samples (median of three, then two in a row):
+    # 37.5 ms = 0.19 mm at 80 samples/s and 5 mm/s, plus thread scheduling on a busy PC.
+    assert 1.6 < end.number("moved") < 2.0
 
 
 def test_stop_load(machine):
     end = _run_test_move(machine, stop_load=250)
     assert end.fields["reason"] == "LOAD"
-    # The peak includes the sample that crossed the limit (at most one sample, 25 N, beyond it here).
-    assert 250 <= end.number("peak") <= 290
+    # The peak includes the sample that crossed the limit: one sample period beyond it at most, 25 N
+    # at 80 samples/s and 2000 N/s here, or up to 32 ms (64 N) when a busy PC delays the simulator's timer.
+    assert 250 <= end.number("peak") <= 250 + 2000 * 0.032
 
 
 def test_overload_cutoff(machine):

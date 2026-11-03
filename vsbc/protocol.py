@@ -1,4 +1,4 @@
-"""Parsing and formatting for serial protocol v2 (docs/protocol.md).
+"""Parsing and formatting for serial protocol v3 (docs/protocol.md).
 
 Pure functions and small dataclasses only, so the same code serves the real
 link, the simulator and the tests.
@@ -20,7 +20,7 @@ class ProtocolError(ValueError):
 class Sample:
     """One `D` line."""
 
-    t_ms: int
+    t_ms: float        # Mega clock, ms to 0.001 (protocol v3 prints three decimals)
     pos_mm: float
     load_n: float      # nan when the load cell is missing or not calibrated
     raw: int
@@ -102,7 +102,10 @@ def parse_line(line: str) -> Message | None:
         if len(parts) != 6:
             raise ProtocolError(f"data line needs 5 fields: {line!r}")
         try:
-            return Sample(int(parts[1]), float(parts[2]), float(parts[3]), int(parts[4]), parts[5])
+            t_ms = float(parts[1])
+            if not math.isfinite(t_ms):
+                raise ValueError(f"time {parts[1]!r}")
+            return Sample(t_ms, float(parts[2]), float(parts[3]), int(parts[4]), parts[5])
         except ValueError as e:
             raise ProtocolError(f"bad data line {line!r}: {e}") from None
     if head in ("OK", "ERR"):

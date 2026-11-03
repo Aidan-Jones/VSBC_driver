@@ -1,25 +1,29 @@
 """Calibrate tab: shows the settings stored on the Mega and runs the calibration
-wizards, the direction check, travel limits and the overload cutoff."""
+wizards, the direction check, travel limits, the overload cutoff and the
+load-sign flip (tension must read positive)."""
 
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 
-from vsbc.calibration import latest_record
+from vsbc.calibration import latest_record, save_record
 from vsbc.gui.common import QtWidgets, button, fmt
 from vsbc.gui.panels import Panel
+from vsbc.units import N_PER, Units
 
 log = logging.getLogger(__name__)
 
 
 class CalibratePanel(Panel):
+    # key, label, digits, unit kind ("force", "length", "per_force") or a fixed unit
     FIELDS = (
         ("steps_per_mm", "Steps per mm", 4, ""),
-        ("load_scale", "Load scale", 4, "counts/N"),
+        ("load_scale", "Load scale", 4, "per_force"),
         ("load_offset", "Load zero", 0, "counts"),
-        ("max_load", "Overload cutoff", 1, "N"),
-        ("min_pos", "Lower travel limit", 3, "mm"),
-        ("max_pos", "Upper travel limit", 3, "mm"),
+        ("max_load", "Overload cutoff", 1, "force"),
+        ("min_pos", "Lower travel limit", 3, "length"),
+        ("max_pos", "Upper travel limit", 3, "length"),
         ("dir_invert", "Direction inverted", 0, ""),
         ("invert_b", "Motor B inverted", 0, ""),
     )
@@ -27,6 +31,7 @@ class CalibratePanel(Panel):
     def __init__(self, win):
         super().__init__(win)
         self.values: dict[str, QtWidgets.QLabel] = {}
+        self._settings: dict = {}
         box = QtWidgets.QGroupBox("Stored on the Mega (EEPROM)")
         form = QtWidgets.QFormLayout(box)
         for key, label, _digits, _unit in self.FIELDS:
@@ -37,6 +42,9 @@ class CalibratePanel(Panel):
         form.addRow("Last calibration", self.records)
 
         self.load_btn = button("Load cell calibration...", self.load_wizard)
+        self.flip_btn = button("Flip load sign (tension reads negative)...", self.flip_load_sign)
+        self.flip_btn.setToolTip("Tension must read as positive load: the break detection and the results depend "
+                                 "on it. This negates the stored load scale; no recalibration needed.")
         self.travel_btn = button("Travel calibration (steps/mm)...", self.travel_wizard)
         self.dir_btn = button("Direction check...", self.direction_check)
         self.lower_btn = button("Set lower travel limit here", lambda: self.set_limit("min_pos"))
@@ -46,7 +54,7 @@ class CalibratePanel(Panel):
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(box)
-        for b in (self.load_btn, self.travel_btn, self.dir_btn, self.lower_btn, self.upper_btn,
+        for b in (self.load_btn, self.flip_btn, self.travel_btn, self.dir_btn, self.lower_btn, self.upper_btn,
                   self.max_load_btn, self.refresh_btn):
             layout.addWidget(b)
         layout.addStretch(1)
@@ -60,7 +68,9 @@ class CalibratePanel(Panel):
         self.show_settings(self.machine.settings)
 
     def show_settings(self, settings: dict) -> None:
-        for key, _label, digits, unit in self.FIELDS:
+        self._settings = dict(settings)
+        u = self.win.units
+        for key, _label, digits, kind in self.FIELDS:
             value = settings.get(key)
             if key == "load_scale" and value == 0:
                 text = "not calibrated"
@@ -68,8 +78,14 @@ class CalibratePanel(Panel):
                 text = "off"
             elif key in ("dir_invert", "invert_b") and value is not None:
                 text = "yes" if value else "no"
+            elif value is not None and kind == "force":
+                text = fmt(u.force_from_n(value), digits + (1 if u.force != "N" else 0), u.force)
+            elif value is not None and kind == "length":
+                text = fmt(u.length_from_mm(value), digits + u.length_digits - 4, u.length)
+            elif value is not None and kind == "per_force":
+                text = fmt(value * N_PER[u.force], digits, f"counts/{u.force}")
             else:
-                text = fmt(value, digits, unit)
+                text = fmt(value, digits, kind)
             self.values[key].setText(text)
         parts = []
         for kind, name in (("load", "load cell"), ("travel", "travel")):
@@ -87,6 +103,40 @@ class CalibratePanel(Panel):
         from vsbc.gui.wizards import TravelCalibrationDialog
 
         TravelCalibrationDialog(self.win).open_dialog()
+
+    def apply_units(self, units: Units) -> None:
+        if self._settings:
+            self.show_settings(self._settings)
+
+    # ------------------------------------------------------------ load sign --
+    def flip_load_sign(self) -> None:
+        """Tension must read positive: the Mega's break detection tracks the peak in the run direction."""
+        scale = self.machine.settings.get("load_scale", 0.0)
+        if not scale:
+            self.win.warn("Flip load sign", "The load cell is not calibrated yet.")
+            return
+        if not self.win.ask("Flip load sign",
+                            "Use this when pulling (tension) shows a negative load.\n\nIt negates the stored load "
+                            f"scale ({scale:.4f} → {-scale:.4f} counts/N) and saves it on the Mega. Tension then "
+                            "reads positive in the graphs, the data and the break detection.\n\nFlip it?"):
+            return
+
+        def work():
+            self.machine.set("load_scale", -scale)
+            self.machine.save()
+            settings = self.machine.refresh_settings()
+            save_record(self.win.config.calibration_dir, "load", {
+                "flipped": True, "old_scale": scale, "new_scale": -scale,
+                "firmware": asdict(self.machine.info) if self.machine.info else None, "port": self.machine.port,
+            })
+            return settings
+
+        def done(settings):
+            self.show_settings(settings)
+            self.win._remove_warnings("Tension is reading negative")
+            self.win.inform("Flip load sign", "The load sign is flipped and saved: tension now reads positive.")
+
+        self.win.run_async(work, done)
 
     # ----------------------------------------------------- direction check --
     def direction_check(self) -> None:
@@ -177,8 +227,8 @@ class CalibratePanel(Panel):
         if s is None:
             return
         name = "lower" if key == "min_pos" else "upper"
-        if not self.win.ask("Travel limit", f"Save {s.pos_mm:.3f} mm as the {name} travel limit?\n\n"
-                                            "Limits are measured from the position reference."):
+        if not self.win.ask("Travel limit", f"Save {self.win.units.format_length(s.pos_mm)} as the {name} travel "
+                                            "limit?\n\nLimits are measured from the position reference."):
             return
 
         def work():
@@ -189,11 +239,14 @@ class CalibratePanel(Panel):
         self.win.run_async(work, self.show_settings)
 
     def set_max_load(self) -> None:
+        u = self.win.units
         current = self.machine.settings.get("max_load", 0.0) or 0.9 * self.win.config.loadcell.capacity_n
-        value, ok = QtWidgets.QInputDialog.getDouble(
-            self, "Overload cutoff", "Any move stops when |load| reaches (N, 0 = off):", current, 0.0, 1e6, 1)
+        shown, ok = QtWidgets.QInputDialog.getDouble(
+            self, "Overload cutoff", f"Any move stops when |load| reaches ({u.force}, 0 = off):",
+            u.force_from_n(current), 0.0, u.force_from_n(1e6), 2 if u.force != "N" else 1)
         if not ok:
             return
+        value = u.force_to_n(shown)
 
         def work():
             self.machine.set("max_load", value)
@@ -204,6 +257,7 @@ class CalibratePanel(Panel):
 
     def update_enabled(self, connected: bool, busy: bool) -> None:
         ok = connected and not busy
-        for b in (self.load_btn, self.travel_btn, self.dir_btn, self.lower_btn, self.upper_btn, self.max_load_btn):
+        for b in (self.load_btn, self.flip_btn, self.travel_btn, self.dir_btn, self.lower_btn, self.upper_btn,
+                  self.max_load_btn):
             b.setEnabled(ok)
         self.refresh_btn.setEnabled(connected)

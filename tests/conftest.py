@@ -1,5 +1,6 @@
 import pytest
 
+from vsbc import sim as sim_module
 from vsbc.config import Config
 from vsbc.machine import Machine
 from vsbc.sim import SimulatedMega, Specimen
@@ -9,11 +10,18 @@ FAST_SPECIMEN = dict(stiffness_n_per_mm=400.0, yield_load_n=300.0, peak_load_n=4
                      extension_at_peak_mm=1.2, break_extension_mm=1.6)
 
 
+@pytest.fixture(autouse=True)
+def quick_averaging(monkeypatch):
+    """The firmware averages TARE / CAL for 2 s; the simulated tests do with less."""
+    monkeypatch.setattr(sim_module, "AVERAGE_S", 0.25)
+
+
 @pytest.fixture
 def config(tmp_path):
     cfg = Config(output_dir=tmp_path / "out")
     cfg.serial.ready_timeout_s = 2.0
     cfg.ping_interval_s = 0.2
+    cfg.camera.auto_start = False     # tests that need the camera start the simulated one themselves
     return cfg
 
 
