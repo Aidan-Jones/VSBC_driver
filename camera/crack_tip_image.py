@@ -43,7 +43,9 @@ from scipy.interpolate import griddata
 # ---------------------------------------------------------------------------
 # USER SETTINGS
 # ---------------------------------------------------------------------------
-RUN_FOLDER = r"C:\VSBC_DIC_Test\captures\YYYYMMDD_HHMMSS_test01"
+RUNS_ROOT = (r"C:\VSBC_DIC_Test\captures" if os.name == "nt"
+             else os.path.expanduser("~/vsbc_captures"))
+RUN_FOLDER = None           # None = folder given on the command line, else the newest run
 
 # Where the crack starts (notch tip), in pixels of the RECORDED images
 # (cropped band coordinates). Find it in roi_snapshot.tif or frame_000000.tif.
@@ -417,5 +419,19 @@ def main():
     plt.show()
 
 
+def newest_run(root):
+    runs = sorted(d for d in glob.glob(os.path.join(root, "*"))
+                  if os.path.isdir(os.path.join(d, "images")))
+    return runs[-1] if runs else None
+
+
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1:
+        RUN_FOLDER = sys.argv[1]
+    elif RUN_FOLDER is None:
+        RUN_FOLDER = newest_run(RUNS_ROOT)
+        if RUN_FOLDER is None:
+            sys.exit(f"No runs in {RUNS_ROOT}")
+    print(f"Run: {RUN_FOLDER}")
     main()

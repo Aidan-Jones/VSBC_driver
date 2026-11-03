@@ -11,6 +11,14 @@ results. Works for any image set (stationary or deforming).
 
 Function/argument names checked against installed pyvale 2026.10.2.
 
+Use:
+    python3 pyvale_dic_run.py <run folder>   -> that run's images + DIC results;
+                                                plots saved as PNG, not shown
+                                                (capture_dic_live.py does this
+                                                after each test)
+    python3 pyvale_dic_run.py                -> image_folder / output_folder
+                                                below, or the newest run
+
 The vsbc GUI runs this file after each test with image_folder, output_folder,
 RUN_DIC = False, MAKE_ANIMATION and ANIM_STEP set for that test (it rewrites
 those lines); each plt.show() then saves the figures to <run>/plots/.
@@ -18,11 +26,20 @@ Changes made while porting it to the GUI are marked "FIX:".
 """
 
 import os
+import sys
+import csv
 import glob
+import json
 import time
 from pathlib import Path
 
 import numpy as np
+import matplotlib
+
+# A run folder on the command line: no windows, the plots are saved as PNG
+AUTO_RUN = sys.argv[1] if len(sys.argv) > 1 and os.path.isdir(sys.argv[1]) else None
+if AUTO_RUN:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 import pyvale.dic as dic
@@ -32,10 +49,13 @@ import pyvale.strain as strain
 # ---------------------------------------------------------------------------
 # USER SETTINGS
 # ---------------------------------------------------------------------------
-image_folder = r"C:\VSBC_DIC_Test\images_gray"   # cleaned copy from convert_images_for_pyvale.py
-output_folder = r"C:\VSBC_DIC_Test\pyvale_results_all"  # new folder for the all-frames run
+RUNS_ROOT = (r"C:\VSBC_DIC_Test\captures" if os.name == "nt"
+             else os.path.expanduser("~/vsbc_captures"))
+image_folder = None    # None = <run>/images of the newest run in RUNS_ROOT
+output_folder = None   # None = <run>/pyvale_results
 
-RUN_DIC = True         # False = skip ROI + DIC and just reload existing results
+RUN_DIC = False        # False = use the DIC results capture_dic_live.py made
+                       # True  = draw an ROI and redo DIC on image_folder
 FRAME_STEP = 1         # 1 = every frame; 10 = every 10th frame (fast first pass)
 MAX_FRAMES = None      # e.g. 100 to stop early; None = use all selected frames
 
@@ -52,7 +72,35 @@ STRAIN_COLUMN = "eps_11"
 MAKE_ANIMATION = True  # saves strain_animation.mp4 (or .gif) in output_folder
 ANIM_FPS = 30          # 900 frames at 30 fps = 30 s video
 ANIM_STEP = 1          # 1 = every analyzed frame in the video; 3 = every 3rd
+ANIM_RANGE = "crack"   # "crack" = only the full-rate crack window (slow motion);
+                       # "all" = the whole test
 STRAIN_CLIM = None     # e.g. (-0.01, 0.05) to fix the color range; None = auto
+
+if AUTO_RUN:
+    image_folder = os.path.join(AUTO_RUN, "images")
+    output_folder = os.path.join(AUTO_RUN, "pyvale_results")
+    RUN_DIC = False
+elif image_folder is None:
+    _runs = sorted(d for d in glob.glob(os.path.join(RUNS_ROOT, "*"))
+                   if os.path.isdir(os.path.join(d, "images")))
+    assert _runs, (f"No runs in {RUNS_ROOT}: give a run folder on the command "
+                   "line or set image_folder")
+    image_folder = os.path.join(_runs[-1], "images")
+if output_folder is None:
+    output_folder = os.path.join(os.path.dirname(os.path.normpath(image_folder)),
+                                 "pyvale_results")
+print(f"Images: {image_folder}\nResults: {output_folder}")
+
+
+def _show(name):
+    """Show the figures, or with a run folder on the command line save them as PNG."""
+    if AUTO_RUN:
+        path = os.path.join(output_folder, name + ".png")
+        plt.savefig(path, dpi=120)
+        plt.close()
+        print(f"Saved {path}")
+    else:
+        plt.show()
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +146,7 @@ if RUN_DIC:
         reference=reference_image,
         deformed=deformed_paths,
         roi_mask=roi.mask,
-        seed=roi.seed,
+        seed=[int(round(v)) for v in np.asarray(roi.seed, float).reshape(-1, 2)[0]],
         subset_size=subset_size,
         subset_step=subset_step,
         max_displacement=max_displacement,
@@ -128,7 +176,6 @@ n_frames = u_x.shape[0]
 # Camera frame number of each result (from the file name) and, if the run
 # folder has a frames.csv from capture_dic_live.py, its time in seconds.
 import re as _re
-import csv as _csv
 _result_files = sorted(glob.glob(os.path.join(output_folder, "dic_results_*")))
 frame_numbers = np.array([int(_re.findall(r"(\d+)", os.path.basename(f))[-1])
                           for f in _result_files])
@@ -139,7 +186,7 @@ if os.path.exists(_frames_csv) and len(frame_numbers) == n_frames:
     # FIX: read with the csv module. np.genfromtxt(dtype=None) guesses each
     # column's type from its contents, which goes wrong when "marker" is empty.
     with open(_frames_csv, newline="") as _fh:
-        _rows = list(_csv.DictReader(_fh))
+        _rows = list(csv.DictReader(_fh))
     _ts = {int(r["frame_index"]): int(r["camera_timestamp_ns"]) for r in _rows}
     _tt = {int(r["frame_index"]): float(r["time_s"]) for r in _rows if r.get("time_s")}
     if _tt and all(k in _tt for k in frame_numbers):
@@ -290,7 +337,7 @@ else:
     axes[2].set_title("strain field names not found")
 
 plt.tight_layout()
-plt.show()
+_show("summary_plots")
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +371,7 @@ if eps_yy is not None and len(eps_yy) == len(_xt):
 for a in axD:
     a.set_xlabel("Time (s)" if frame_time is not None else "Camera frame number")
 plt.tight_layout()
-plt.show()
+_show("motion_diagnostics")
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +393,7 @@ if eps_yy is not None:
     ax2.set_title(f"{eyy_col} on specimen, frame "
                   f"{os.path.basename(strain_files[-1])}")
     plt.tight_layout()
-    plt.show()
+    _show("strain_on_specimen")
 
 
 # ---------------------------------------------------------------------------
@@ -429,9 +476,34 @@ if MAKE_ANIMATION and eps_yy is not None:
     print(f"\nBuilding animation ({n_anim} frames)...")
     t0 = time.perf_counter()
     from matplotlib.animation import writers, FFMpegWriter
-    anim_frames = list(range(0, n_anim, ANIM_STEP))
-    if anim_frames[-1] != n_anim - 1:
-        anim_frames.append(n_anim - 1)   # always end on the last frame
+    # Full-rate windows: capture_settings.json (crack_windows from
+    # capture_dic_live.py, full_rate_windows from the vsbc GUI), else runs of
+    # consecutive frame numbers.
+    _win = []
+    _cs = os.path.join(os.path.dirname(os.path.normpath(image_folder)),
+                       "capture_settings.json")
+    if os.path.exists(_cs):
+        with open(_cs) as _fh:
+            _meta = json.load(_fh)
+        _win = _meta.get("full_rate_windows") or _meta.get("crack_windows") or []
+    if _win:
+        _in = np.zeros(n_anim, bool)
+        for _a, _b in _win:
+            _in |= (frame_numbers >= _a) & (frame_numbers <= _b)
+    else:
+        _in = np.zeros(n_anim, bool)
+        _d = np.diff(frame_numbers) == 1
+        _in[:-1] |= _d
+        _in[1:] |= _d
+    if ANIM_RANGE == "crack" and _in.any():
+        _i0 = int(np.argmax(_in))
+        _i1 = n_anim - 1 - int(np.argmax(_in[::-1]))
+        anim_frames = list(range(_i0, _i1 + 1, ANIM_STEP))
+        print(f"Animating the crack window: frames {frame_numbers[_i0]}-{frame_numbers[_i1]}")
+    else:
+        anim_frames = list(range(0, n_anim, ANIM_STEP))
+        if anim_frames[-1] != n_anim - 1:
+            anim_frames.append(n_anim - 1)   # always end on the last frame
     anim = FuncAnimation(figA, _draw, frames=anim_frames, blit=False)
 
     # MP4 if ffmpeg is installed (much smaller file); otherwise GIF
@@ -441,7 +513,8 @@ if MAKE_ANIMATION and eps_yy is not None:
                   dpi=110)
     else:
         print("ffmpeg not found, saving GIF instead "
-              "(for MP4: 'mamba install ffmpeg' in the dic environment)")
+              "(for MP4: 'sudo apt install ffmpeg' on the Pi, "
+              "'mamba install ffmpeg' in the laptop's dic environment)")
         anim_path = os.path.join(output_folder, "strain_animation.gif")
         anim.save(anim_path, writer=PillowWriter(fps=ANIM_FPS), dpi=80)
     plt.close(figA)

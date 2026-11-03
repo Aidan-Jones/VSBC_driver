@@ -2,7 +2,7 @@
 """
 capture_dic_live.py
 
-Basler a2A1920-160umBAS test capture with live Pyvale DIC (laptop version).
+Basler a2A1920-160umBAS test capture + Pyvale DIC (Raspberry Pi 5 or laptop).
 
 Stages
   1. PREVIEW  - live view to adjust before anything is recorded
@@ -10,29 +10,33 @@ Stages
                  r    accept -> draw ROI -> record      q  quit
   2. ROI      - Pyvale window on a snapshot: draw ROI (include the notch),
                 place the seed well inside, close the window
-  3. RECORD   - camera runs at max frame rate (~169 fps)
-                 * every SAVE_EVERY-th frame is saved continuously
+  3. RECORD   - camera runs at max frame rate for the crop (~478 fps at 400 rows)
+                 * ~SAVE_FPS frames/s are saved continuously
                  * EVERY frame of the last BUFFER_SECONDS is kept in RAM
                  m  marker
                  c  crack! -> saves the full-rate RAM buffer AND keeps saving
                     every frame for POST_SECONDS (press again if needed)
                  q  stop (also saves the full-rate RAM buffer)
                 Frame 0 is the DIC reference: start with the specimen unloaded.
-  4. LIVE DIC - separate process, always on the newest saved frame
-                (DIC_STEP grid), skipping what it can't keep up with; shows a
-                live vertical-displacement map. After stopping it fills in
-                every DIC_STEP-th saved frame, then every CRACK_DIC_STEP-th
-                frame of the full-rate crack window(s).
+  4. AFTER    - frames finish writing, the frame viewer (view_frames.py) opens
+                on the crack window, then DIC runs (overview at
+                OVERVIEW_DIC_FPS, then every CRACK_DIC_STEP-th frame of the
+                crack window), then pyvale_dic_run.py (strain, plots,
+                animation). LIVE_DIC = True also runs DIC during the test
+                (laptop); on the Pi leave it off so the cores stay free for
+                capture.
 
 Frames are named by their true frame number (frame_000123.tif), so the
 continuous and full-rate parts fit together; frames.csv lists every frame
 grabbed and whether it was saved.
 
-Run from Miniforge Prompt:
+Run on the Pi desktop, in the camera environment (README.md):
+    source ~/VSBC_driver/.venv-camera/bin/activate
+    python3 ~/VSBC_driver/camera/capture_dic_live.py
+or on the laptop from Miniforge Prompt (close pylon Viewer first):
     conda activate dic
-    cd C:\\VSBC_DIC_Test
     python capture_dic_live.py
-Close pylon Viewer first.
+Results: <OUTPUT_ROOT>/<date>_<time>_<TEST_NAME>/
 
 The vsbc GUI (Camera tab) uses this file too: its USER SETTINGS as defaults,
 configure_camera() to set the camera up and dic_worker() for the DIC. Keep
@@ -42,7 +46,6 @@ Changes made while porting it to the GUI are marked "FIX:".
 
 import os
 import json
-import math
 import time
 import queue
 import threading
@@ -63,13 +66,16 @@ APERTURE_LABEL = "f2.8"
 
 EXPOSURE_US = 1488          # starting value; adjustable in the preview
 FPS = None                  # None = camera maximum (~169 fps at full size)
-SAVE_EVERY = 9              # continuous saving: every 9th frame (~53 fps at 478 fps)
+SAVE_FPS = 10               # continuous saving rate during loading (frames/s);
+                            # the crack window is still saved at the full rate.
+                            # 10 fps at 400 rows is ~8 MB/s, which a microSD keeps up with
+SAVE_EVERY = 9              # vsbc GUI only ("every k-th frame" save mode); this
+                            # script derives its step from SAVE_FPS
 BUFFER_SECONDS = 2          # every frame of the last N s kept in RAM (covers
                             # reaction time: a brittle crack is over before 'c')
 POST_SECONDS = 1            # after 'c', save every frame for N more s (q ends it early)
-MAX_SECONDS = 45            # safety stop (recording only). FIX: a tensile test
-                            # usually runs longer than 45 s - raise this for a whole
-                            # test (the vsbc GUI ends its recordings with the test)
+MAX_SECONDS = 1200          # safety stop (recording only), 20 min. FIX: was 45 s,
+                            # which ended a tensile test early
 SETTLE_SECONDS = 5          # wait after the ROI window closes before frame 0
                             # (hands off the table!) so the reference frame
                             # isn't taken while the setup is still shaking
@@ -78,28 +84,37 @@ CROP = dict(width=1920, height=400, offset_x=8, offset_y=408)   # from crop_fps_
                             # None = full 1920 x 1200 (169 fps)
 
 # FIX: on Linux a Windows path is a relative folder literally named "C:\...";
-# use the home folder there.
+# use the home folder there (the after-test scripts look in the same place).
 OUTPUT_ROOT = (r"C:\VSBC_DIC_Test\captures" if os.name == "nt"
-               else os.path.join(os.path.expanduser("~"), "VSBC_DIC_Test", "captures"))
-REUSE_ROI = False           # True = reuse OUTPUT_ROOT\last_roi.npz (camera not moved)
+               else os.path.expanduser("~/vsbc_captures"))
+REUSE_ROI = False           # True = reuse OUTPUT_ROOT/last_roi.npz (camera not moved)
 
 # DIC
-DIC_STEP = 27               # whole test: every 27th frame (~18 fps); keep a
-                            # multiple of SAVE_EVERY so those frames exist
+OVERVIEW_DIC_FPS = 2        # DIC rate over the whole (slow) test, frames/s;
+                            # the crack window still gets every frame
+DIC_STEP = 27               # vsbc GUI only (overview = every DIC_STEP/SAVE_EVERY-th
+                            # saved frame); this script derives it from OVERVIEW_DIC_FPS
 CRACK_DIC_STEP = 1          # full-rate crack window(s): 1 = every frame (~478 fps cropped)
                             # done AFTER the whole-test pass, so you get the
                             # overview first
 subset_size = 41
 subset_step = 20
 max_displacement = 64
-DIC_THREADS = max(1, (os.cpu_count() or 4) - 2)
+DIC_THREADS = max(1, (os.cpu_count() or 4) - 2)   # DIC during a test; after the
+                                                  # test this script uses all cores
 FILL_BATCH = 25
+LIVE_DIC = False            # True = DIC on the newest frame during the test too
+                            # (laptop). Off on the Pi: the cores are needed for capture
 
 N_WRITERS = 4
 PREVIEW_SCALE = 0.4
 PREVIEW_EVERY_S = 0.1
-LIVE_DIC_WINDOW = True
+LIVE_DIC_WINDOW = True      # live displacement map (only with LIVE_DIC)
 SHOW_WINDOWS = True         # False only for testing without a screen
+RUN_ANALYSIS_AFTER = True   # after DIC: run pyvale_dic_run.py on this run
+                            # (strain, plots saved as PNG, strain animation)
+PLAYBACK_AFTER_CAPTURE = True   # open view_frames.py on the crack window as soon
+                                # as the frames are saved (DIC keeps running)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +215,9 @@ def dic_worker(cfg, done_q, status_q):
             time.sleep(0.02)
             continue
 
+        if not finishing and not cfg.get("live", True):
+            time.sleep(0.05)                    # live DIC off: wait for the stop
+            continue
         batch = sorted(grid)[:cfg["fill_batch"]] if finishing else [max(grid)]
         try:
             run(batch)
@@ -342,11 +360,6 @@ def main():
     from pypylon import pylon
     import pyvale.dic as dic
 
-    if DIC_STEP % SAVE_EVERY:
-        # FIX: warn instead of silently getting only a few whole-test DIC frames
-        print(f"WARNING: DIC_STEP ({DIC_STEP}) is not a multiple of SAVE_EVERY ({SAVE_EVERY}): "
-              f"the whole-test DIC only gets every {math.lcm(DIC_STEP, SAVE_EVERY)}th frame.")
-
     # --- folders ---
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_folder = os.path.join(OUTPUT_ROOT, f"{stamp}_{TEST_NAME}")
@@ -435,8 +448,21 @@ def main():
     n_buffer = int(BUFFER_SECONDS * fps_cam)
     print(f"\nAccepted: exposure {exposure:.0f} us, {width} x {height} at "
           f"{fps_cam:.1f} fps")
-    print(f"  continuous save: every {SAVE_EVERY} -> {fps_cam / SAVE_EVERY:.0f} fps "
-          f"({frame_mb * fps_cam / SAVE_EVERY:.0f} MB/s)")
+    # Steps from the rates, so they follow the crop's frame rate; DIC_STEP is a
+    # multiple of SAVE_EVERY, so every overview frame is one that was saved.
+    SAVE_EVERY = max(1, int(round(fps_cam / SAVE_FPS)))
+    DIC_STEP = SAVE_EVERY * max(1, int(round((fps_cam / SAVE_EVERY) / OVERVIEW_DIC_FPS)))
+    gb_per_min = frame_mb * fps_cam / SAVE_EVERY * 60 / 1000
+    print(f"  continuous save: every {SAVE_EVERY} -> {fps_cam / SAVE_EVERY:.1f} fps "
+          f"({frame_mb * fps_cam / SAVE_EVERY:.0f} MB/s, {gb_per_min:.2f} GB per minute)")
+    print(f"  overview DIC: every {DIC_STEP} -> {fps_cam / DIC_STEP:.1f} fps")
+    try:
+        import shutil
+        free_gb = shutil.disk_usage(run_folder).free / 1e9
+        print(f"  disk free: {free_gb:.0f} GB -> room for about "
+              f"{free_gb / max(gb_per_min, 1e-6):.0f} min of recording")
+    except OSError:
+        pass
     print(f"  full-rate RAM buffer: {BUFFER_SECONDS} s = {n_buffer} frames "
           f"= {n_buffer * frame_mb / 1000:.1f} GB of RAM")
 
@@ -466,6 +492,10 @@ def main():
         roi_mask = np.asarray(roi.mask)
         roi_seed = roi.seed
         np.savez(roi_file, mask=roi_mask, seed=np.array(roi_seed, dtype=object))
+    # calculate_2d wants one seed as [x, y] ints (the ROI window can return a
+    # list of points, or floats)
+    _p = np.asarray(roi_seed, dtype=float).reshape(-1, 2)[0]
+    roi_seed = [int(round(_p[0])), int(round(_p[1]))]
     if tuple(roi_mask.shape) != (height, width):
         raise RuntimeError(f"ROI mask {roi_mask.shape} does not match image "
                            f"{(height, width)}; set REUSE_ROI = False")
@@ -476,7 +506,8 @@ def main():
         "fps_camera": fps_cam, "width": width, "height": height,
         "offset_x": get_feature(camera, "OffsetX"),
         "offset_y": get_feature(camera, "OffsetY"),
-        "save_every": SAVE_EVERY, "buffer_seconds": BUFFER_SECONDS,
+        "save_every": SAVE_EVERY, "save_fps": fps_cam / SAVE_EVERY,
+        "buffer_seconds": BUFFER_SECONDS,
         "post_seconds": POST_SECONDS,
         "model": info.GetModelName(), "serial": info.GetSerialNumber(),
         "camera_temperature_c_start": get_feature(camera, "DeviceTemperature"),
@@ -486,15 +517,16 @@ def main():
     }
 
     # =======================================================================
-    # 3. RECORD (+ 4. live DIC in a separate process)
+    # 3. RECORD (+ 4. DIC in a separate process)
     # =======================================================================
     ctx = mp.get_context("spawn")
     done_q, status_q = ctx.Queue(), ctx.Queue()
     cfg = dict(frames_dir=frames_folder, out_dir=dic_folder, step=DIC_STEP,
                roi_mask=roi_mask, roi_seed=roi_seed, subset_size=subset_size,
                subset_step=subset_step, max_displacement=max_displacement,
-               threads=DIC_THREADS, fill_batch=FILL_BATCH,
-               window=LIVE_DIC_WINDOW and show)
+               threads=DIC_THREADS if LIVE_DIC else (os.cpu_count() or 4),
+               fill_batch=FILL_BATCH,
+               window=LIVE_DIC and LIVE_DIC_WINDOW and show, live=LIVE_DIC)
     worker = ctx.Process(target=dic_worker, args=(cfg, done_q, status_q),
                          daemon=True)
     worker.start()
@@ -542,7 +574,7 @@ def main():
     max_queue = grab_errors = 0
     queue_warn_at = max(50, int(2 * fps_cam))
     queue_warned = write_warned = False
-    dic_status = "DIC: waiting"
+    dic_status = "DIC: waiting" if LIVE_DIC else "DIC: runs after you stop"
     dic_errors = []
 
     def add_marker(i, t, label):
@@ -627,7 +659,7 @@ def main():
                 # RAM until the program is killed. Say so while it happens.
                 queue_warned = True
                 print(f"  WARNING: {waiting} frames waiting to be written: the disk is slower than the "
-                      "save rate and RAM keeps filling. Raise SAVE_EVERY or save to a faster drive.")
+                      "save rate and RAM keeps filling. Lower SAVE_FPS or save to a faster drive.")
             idx += 1
 
             if t_pc - last_preview >= PREVIEW_EVERY_S:
@@ -734,6 +766,17 @@ def main():
     print(f"Markers: {[(m[2], m[0]) for m in markers]}")
     print("=======================================")
 
+    # --- look at the frames right away (DIC continues in the background) ---
+    if PLAYBACK_AFTER_CAPTURE and show:
+        try:
+            import view_frames
+        except ImportError:
+            print("view_frames.py not found next to this script; skipping playback")
+        else:
+            print("\nOpening the frame viewer (space = play, c = crack window, "
+                  "q = close). DIC keeps running meanwhile.")
+            view_frames.view_run(run_folder)
+
     # --- wait for DIC fill-in ---
     n_target = len(set(i for i in enqueued if i > 0 and i % DIC_STEP == 0
                         and i not in bad) | set(i for i in crack_list if i > 0))
@@ -748,12 +791,20 @@ def main():
     print(f"\nDIC results: {n_results} / {n_target} frames in {dic_folder}")
     if dic_errors:
         print(f"{len(dic_errors)} DIC error(s); first: {dic_errors[0]}")
-    print("\nNext: pyvale_dic_run.py with\n"
-          f'  image_folder = r"{frames_folder}"\n'
-          f'  output_folder = r"{dic_folder}"\n'
-          "  RUN_DIC = False\n"
-          "Tip: with many crack frames, set ANIM_STEP in pyvale_dic_run.py "
-          "to keep the animation short.")
+    analysis = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "pyvale_dic_run.py")
+    if RUN_ANALYSIS_AFTER and n_results > 0 and os.path.exists(analysis):
+        import subprocess
+        import sys
+        print("\nRunning pyvale_dic_run.py on this run (strain, plots, animation)...")
+        t_a = time.perf_counter()
+        r = subprocess.run([sys.executable, analysis, run_folder])
+        print(f"Analysis {'finished' if r.returncode == 0 else 'FAILED'} in "
+              f"{time.perf_counter() - t_a:.0f} s. Plots + animation are in {dic_folder}")
+    else:
+        if RUN_ANALYSIS_AFTER and not os.path.exists(analysis):
+            print("pyvale_dic_run.py not found next to this script.")
+        print(f'\nNext:  python pyvale_dic_run.py "{run_folder}"')
 
 
 if __name__ == "__main__":

@@ -12,12 +12,30 @@ This folder is the **swappable** part. Drop in updated versions of these files a
 
 | Script | When | What it does |
 |---|---|---|
-| `capture_dic_live.py` | test (standalone) | Preview (exposure ±, saturation, 100 % zoom) → draw ROI → record; live DIC; full-rate crack window on `c`; dense DIC after stopping. **In the GUI:** its USER SETTINGS are the camera's settings, and the GUI calls its `configure_camera()` and `dic_worker()`. |
-| `pyvale_dic_run.py` | after the test | Strain, plots vs time, whole-field motion diagnostics, strain animation (`RUN_DIC = False`) |
+| `capture_dic_live.py` | test (standalone) | Preview (exposure ±, saturation, 100 % zoom) → draw ROI → record; full-rate crack window on `c`. After stopping: frame viewer, DIC, then `pyvale_dic_run.py` automatically. **In the GUI:** its USER SETTINGS are the camera's settings, and the GUI calls its `configure_camera()` and `dic_worker()`. |
+| `pyvale_dic_run.py` | after the test | Strain, plots vs time, whole-field motion diagnostics, strain animation of the crack window |
+| `view_frames.py` | after the test | Play / scrub the saved frames (opens on the crack window); export the crack window as `.avi` |
+| `crack_tip_viewer.py` | after the test | Step through the DIC frames with the strain overlay and both trackers' tips; click to mark the tip by hand (`crack_tip_manual.csv`) |
 | `crack_tip_image.py` | after the test | Image-based tracker (warped reference, notch-connected path); crack length vs time |
 | `crack_tip_opening.py` | after the test | Crack tip from the DIC crack opening; crack length and speed; compares with the image tracker |
 
-Both crack trackers are kept until a real brittle crack shows which is more reliable. (The opening method failed on the earlier ductile material; the image tracker matched manual labels there.)
+Both crack trackers are kept until a real brittle crack shows which is more reliable. (The opening method failed on the earlier ductile material; the image tracker matched manual labels there.) Neither has been checked on a real crack yet: mark 5–10 frames by hand in `crack_tip_viewer.py` and compare.
+
+The after-test scripts take a run folder on the command line (`python3 view_frames.py ~/vsbc_captures/<run>`; for a GUI test, `<test folder>/camera`), or use the newest run in `~/vsbc_captures` (`C:\VSBC_DIC_Test\captures` on Windows). The GUI runs only `pyvale_dic_run.py` and the two trackers; the viewers are for looking at a run by hand.
+
+## Standalone on the Pi (without the GUI)
+
+```bash
+source ~/VSBC_driver/.venv-camera/bin/activate
+python3 ~/VSBC_driver/camera/capture_dic_live.py
+```
+
+Results go to `~/vsbc_captures/<date>_<time>_<TEST_NAME>/`. Recording saves ~`SAVE_FPS` frames/s to disk and keeps the last `BUFFER_SECONDS` of every frame in RAM. `LIVE_DIC = False` (the default) runs no DIC during the test, so the Pi's cores stay free for capture. After `q`, the script writes the buffer and opens `view_frames.py`. Then it runs DIC on all cores and `pyvale_dic_run.py <run>`, which saves the plots as PNG in `pyvale_results/`.
+
+On the first real Pi run, check:
+- the capture summary: **0 dropped frames, 0 grab errors, 0 write errors** at the chosen crop (USB at ~360 MB/s);
+- how long the crack buffer takes to write to the SD card, and the DIC seconds/frame (that sets how long you wait after a test);
+- whether OpenCV's windows and Pyvale's ROI window (Qt) conflict ("Qt platform plugin" errors).
 
 ## In the vsbc GUI
 
@@ -104,11 +122,15 @@ The load itself lags the image by the HX711's filter (roughly 2 conversion perio
 |---|---|---|
 | `CROP` | 1920 x 400; set `offset_y` so the band covers the notch (check in the preview) | 478 fps measured, 0 dropped |
 | `EXPOSURE_US` | 1488 | at f/2.8, gain 0 |
-| `SAVE_EVERY` | 9 | ~53 fps saved continuously (standalone; the GUI saves 1 frame per load sample by default) |
+| `SAVE_FPS` | 10 | standalone: frames/s saved continuously (~8 MB/s at 400 rows, fine for a microSD). The script derives its save step from the camera's frame rate |
+| `SAVE_EVERY` | 9 | GUI only: the "every k-th frame" save mode (the GUI saves 1 frame per load sample by default) |
 | `BUFFER_SECONDS` | 2 | every frame of the last 2 s held in RAM |
 | `POST_SECONDS` | 1 | standalone: after `c`, every frame for 1 more s. The GUI stops the camera with the test instead |
-| `DIC_STEP` | 27 | ~18 fps of DIC over the whole test (GUI: every 27/9 = 3rd saved frame) |
+| `OVERVIEW_DIC_FPS` | 2 | standalone: DIC rate over the loading phase (always a multiple of the save step) |
+| `DIC_STEP` | 27 | GUI only: overview DIC on every 27/9 = 3rd saved frame |
 | `CRACK_DIC_STEP` | 1 | DIC on every frame of the full-rate window |
+| `LIVE_DIC` | False | standalone: DIC during the test too (laptop). The GUI's live DIC is set in the Camera panel |
+| `MAX_SECONDS` | 1200 | safety stop, 20 min (standalone and GUI) |
 | `SETTLE_SECONDS` | 5 | wait before the reference frame (hands off) |
 
 Standalone keys while recording: `m` marker, `c` crack (saves the 2 s buffer + 1 s more at full rate), `q` stop. Frame 0 is the DIC reference: start recording with the specimen unloaded.
@@ -123,19 +145,23 @@ Standalone keys while recording: `m` marker, `c` crack (saves the 2 s buffer + 1
 
 `capture_dic_live.py`:
 1. `set_feature`, `get_feature`, `round_to_inc` and `fps_now` moved to top level, and `configure_camera()` added, so the GUI can call them. `main()` uses them, so standalone use is unchanged.
-2. `MAX_SECONDS = 45` would end a normal tensile test early: noted at the setting. The GUI ends its recordings with the test.
+2. `MAX_SECONDS = 45` ended a normal tensile test early. Now it is 1200 (20 min), for the GUI's safety stop too.
 3. The unbounded save queue fills RAM when the disk is slower than the save rate (an SD card), until the program is killed. Now a warning prints while it happens.
 4. Write errors (for example a full disk) were only counted at the end. Now the first one is reported at once.
 5. `set(write_errors)` was rebuilt for every frame. Crack windows were guessed from runs of consecutive frames, so with `SAVE_EVERY = 1` the whole recording counted as a crack window. Now the set is built once, and the windows are recorded as they happen (`crack_windows` in `capture_settings.json`).
-6. Warns when `DIC_STEP` is not a multiple of `SAVE_EVERY`, which silently gives far fewer DIC frames.
+6. `DIC_STEP` not being a multiple of `SAVE_EVERY` silently gave far fewer DIC frames. Standalone, both steps now come from `SAVE_FPS` / `OVERVIEW_DIC_FPS`, and the overview step is always a multiple of the save step.
 7. `round_to_inc` now also clamps to Max. `offset_x = 8` with `width = 1920` fails if the sensor is exactly 1920 wide, and before this the only sign was a printed "not set".
 8. `fps_now()` returns None on models without that node, which gave a TypeError. It now falls back to measuring the rate.
 9. `GrabOne` is checked with `GrabSucceeded()` before `.Array` is read.
-10. `OUTPUT_ROOT`: a Windows path became a folder literally named `C:\...` on Linux. It now uses the home folder there.
+10. `OUTPUT_ROOT`: a Windows path became a folder literally named `C:\...` on Linux. It is now `~/vsbc_captures` there.
+11. `dic_worker` reads `cfg.get("live", True)`: standalone with `LIVE_DIC = False`, it waits for the stop. The GUI does not pass `live`, so its live DIC is unchanged.
+12. The ROI seed is normalised to one `[x, y]` pair of ints before `calculate_2d`.
 
 `pyvale_dic_run.py`:
 - frames.csv is read with the `csv` module (`genfromtxt(dtype=None)` misreads an empty `marker` column), and its test clock (`time_s`) is used when present;
-- a clear warning when `strain_*.csv` files from an earlier run are mixed in.
+- a clear warning when `strain_*.csv` files from an earlier run are mixed in;
+- `python3 pyvale_dic_run.py <run>` uses that run and saves the plots as PNG (capture_dic_live.py calls it this way). `image_folder` / `output_folder` stay top-level settings for the GUI (`None` = the newest run);
+- `ANIM_RANGE = "crack"` animates only the full-rate window, which also applies to GUI runs that have one.
 
 `crack_tip_image.py`:
 - `griddata` raised (QhullError) when a frame had fewer than 3 converged points, right after full separation, which ended the run. It now keeps the previous tip.
@@ -171,4 +197,4 @@ On the laptop, point the app at the conda environment instead: `[camera] python 
 - After DIC, **Outputs tab > Delete camera images** frees most of the space and keeps data.csv, the video, the DIC results and the plots.
 
 ## Paths
-The standalone scripts' settings use Windows paths (`C:\VSBC_DIC_Test\...`). In the GUI, the paths are set for each test automatically.
+Standalone runs go to `~/vsbc_captures` on the Pi (`C:\VSBC_DIC_Test\captures` on Windows). In the GUI, the paths are set for each test automatically.
