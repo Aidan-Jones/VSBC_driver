@@ -105,6 +105,12 @@ fi
 REBOOT=""
 if [[ "$CAMERA" =~ ^[Yy] ]]; then
     sudo apt-get install -y ffmpeg
+    # pyvale and pypylon only come prebuilt for 64-bit ARM: a 32-bit Pi OS gets
+    # "No matching distribution" from pip.
+    if [ "$(python3 -c 'import platform; print(platform.machine())')" != "aarch64" ]; then
+        echo "The camera environment needs 64-bit Raspberry Pi OS (this Python reports $(python3 -c 'import platform; print(platform.machine())'))." >&2
+        exit 1
+    fi
     if [ ! -x "$CAMERA_VENV/bin/python" ]; then
         python3 -m venv "$CAMERA_VENV"
     fi

@@ -600,7 +600,7 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 - [ ] **Camera on the Pi:**
   - Run `bash scripts/install_pi.sh --camera`, reboot, then `vsbc camera check`.
   - Expect 0 dropped frames at 478 fps over USB. Check the disk write speed: 1 frame per load sample at 80/s needs about 61 MB/s, so use a USB 3 SSD for `output_dir` if the SD card is slower.
-  - Check that pyvale **2026.4.0** (the newest with an ARM64 package) accepts the same `calculate_2d` call as 2026.10.2.
+  - Check that `vsbc camera check` runs its small synthetic DIC with pyvale 2026.10.2 on the Pi.
   - The camera integration is tested with the simulated camera only.
 - [ ] **Measure the load-cell delay** with a tap test (tap the grip in view; compare the video and data.csv) and set `load_delay_ms`.
 - [ ] Optional: a faster ADC than the HX711 (NAU7802 up to 320 samples/s, ADS1220 up to 2 kHz) would give more frames paired with load readings.

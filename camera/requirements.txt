@@ -1,5 +1,5 @@
 # VSBC camera + DIC scripts: the CAMERA environment (.venv-camera).
-# Raspberry Pi 5 (64-bit Pi OS Bookworm, Python 3.11) or a PC.
+# Raspberry Pi 5 (64-bit Pi OS Bookworm or Trixie) or a PC.
 #
 # Install into the separate camera environment, NOT the app's .venv:
 #   bash scripts/install_pi.sh --camera            # does all of this on the Pi
@@ -20,11 +20,11 @@
 # Basler camera (the ARM64 wheel includes the pylon runtime)
 pypylon
 
-# DIC + strain. 2026.4.0 is the newest version with a prebuilt ARM64 (aarch64)
-# package for Python 3.11; newer versions would have to compile on the Pi.
-# The scripts were developed on 2026.10.2: "vsbc camera check" runs a small
-# synthetic DIC to confirm that 2026.4.0 accepts the same arguments.
-pyvale==2026.4.0
+# DIC + strain: the version the scripts were developed on. It has prebuilt
+# ARM64 (aarch64) packages for Python 3.11 to 3.14, so it installs on Pi OS
+# Bookworm (3.11) and Trixie (3.13). Older releases are tied to one Python
+# version each (2026.4.0 to 3.11 only), which is why pinning those failed.
+pyvale==2026.10.2
 
 # Images, preview windows (standalone use), crack tracker, video
 opencv-python

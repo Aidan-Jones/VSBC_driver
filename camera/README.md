@@ -160,7 +160,7 @@ Why a separate environment: pyvale 2026.x requires PyQt6, opencv-python (with it
 
 On the laptop, point the app at the conda environment instead: `[camera] python = "C:/Users/<you>/miniforge3/envs/dic/python.exe"` in `config.toml`.
 
-**Version note:** the Pi can only install **pyvale 2026.4.0**; the scripts were developed on 2026.10.2. `vsbc camera check` runs a tiny synthetic DIC through the same `calculate_2d` call as `dic_worker`, to catch API differences.
+**Version note:** the Pi installs **pyvale 2026.10.2**, the version the scripts were developed on (prebuilt for 64-bit ARM, Python 3.11–3.14). `vsbc camera check` runs a tiny synthetic DIC through the same `calculate_2d` call as `dic_worker` to confirm it works.
 
 ## Disk and RAM
 - A frame is 0.77 MB (1920 × 400).
