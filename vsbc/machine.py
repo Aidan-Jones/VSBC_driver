@@ -175,7 +175,8 @@ class Machine:
         if sim:
             from vsbc.sim import SimulatedMega
 
-            transport = sim if isinstance(sim, SimulatedMega) else SimulatedMega(boot_delay_s=0.3, lead_error=0.995)
+            transport = sim if isinstance(sim, SimulatedMega) else SimulatedMega(
+                boot_delay_s=0.3, lead_error=0.995, sample_rate_hz=self.config.loadcell.rate_hz)
             self.sim = transport
             port_name = "SIM"
         else:

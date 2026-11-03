@@ -168,9 +168,6 @@ void cmdHelp(const Command &c, uint8_t, char **) {
     Serial.print(tester::sampleRateHz(), 1);
     Serial.print(F(" samples/s from "));
     Serial.println(tester::sourceName());
-    if (tester::sampleRateHz() > 0.0f && tester::sampleRateHz() < 40.0f) {
-      Serial.println(F("# The HX711 is at 10 samples/s: cut its RATE jumper for 80 (docs/hardware.md)."));
-    }
   }
   ok(c);
   Serial.println();

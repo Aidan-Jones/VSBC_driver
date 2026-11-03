@@ -24,9 +24,9 @@ source = "mega"
 dout_pin = 5                 # Pi GPIO number (BCM) on the HX711 DAT pin: GPIO5 = header pin 29
 sck_pin = 6                  # Pi GPIO number (BCM) on the HX711 CLK pin: GPIO6 = header pin 31
 gain = 128                   # HX711 gain: 128 or 64 (channel A), 32 (channel B)
-rate_hz = 10                 # HX711 readings per second: 80 with its RATE jumper cut (docs/hardware.md),
-                             # 10 as shipped. The camera saves one frame per reading. A warning shows
-                             # when the measured rate does not match.
+rate_hz = 10                 # HX711 readings per second: 10 as shipped, 80 with its RATE jumper cut
+                             # (docs/hardware.md). The camera saves one frame per reading. A warning
+                             # shows when the measured rate does not match.
 capacity_n = 500.0           # rated capacity of the load cell, N (sets the default overload cutoff)
 gravity = 9.80665            # m/s^2, converts calibration masses to newtons
 

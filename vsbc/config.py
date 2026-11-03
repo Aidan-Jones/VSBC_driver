@@ -40,7 +40,7 @@ class LoadCellConfig:
     dout_pin: int = 5                # Pi GPIO (BCM number) wired to the HX711 DAT pin
     sck_pin: int = 6                 # Pi GPIO (BCM number) wired to the HX711 CLK pin
     gain: int = 128                  # HX711 gain: 128 or 64 (channel A), 32 (channel B)
-    rate_hz: float = 80.0            # HX711 conversions per second: 80 with its RATE jumper cut, 10 as shipped
+    rate_hz: float = 10.0            # HX711 conversions per second: 10 as shipped, 80 with its RATE jumper cut
     capacity_n: float = 500.0        # rated capacity; sets the default max_load
     gravity: float = 9.80665         # m/s^2, converts calibration masses to N
 

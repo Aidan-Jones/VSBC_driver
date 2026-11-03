@@ -464,7 +464,7 @@ class Recording:
         self.divisor = max(1, int(opts.get("divisor") or 1))
         self.buffer_s = float(opts.get("buffer_s") or s["BUFFER_SECONDS"])
         self.max_s = opts.get("max_s")
-        self.load_rate = float(opts.get("load_rate_hz") or 0.0) or 80.0
+        self.load_rate = float(opts.get("load_rate_hz") or 0.0) or 10.0
         self.fps = float(service.fps or 100.0)
         self.period_ns = 1e9 / self.fps
         self.width, self.height = service.width, service.height

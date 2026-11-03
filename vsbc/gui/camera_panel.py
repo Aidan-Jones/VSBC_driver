@@ -262,7 +262,8 @@ class CameraPanel(Panel):
         info = self.win.camera.info
         width, height = int(info.get("width") or 1920), int(info.get("height") or 400)
         fps = float(info.get("fps") or 100.0)
-        sps = float(self.win.machine.sample_rate_hz or 80.0) if self.win.machine.connected else 80.0
+        expected = self.win.config.loadcell.rate_hz
+        sps = float(self.win.machine.sample_rate_hz or expected) if self.win.machine.connected else expected
         frame = width * height
         mode = self.save_mode.currentData()
         saved_fps = {"match": sps / self.divisor.value(), "every": fps / self.every.value(), "all": fps}[mode]

@@ -22,6 +22,7 @@ def config(tmp_path):
     cfg.serial.ready_timeout_s = 2.0
     cfg.ping_interval_s = 0.2
     cfg.camera.auto_start = False     # tests that need the camera start the simulated one themselves
+    cfg.loadcell.rate_hz = 80.0       # the simulator's rate, which keeps the timing tests short
     return cfg
 
 

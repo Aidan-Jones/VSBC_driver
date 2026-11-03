@@ -11,7 +11,7 @@ The [README](../README.md) covers setup and use.
 | Ball screw (×2) | 5 mm lead, coupled directly to the motor | 5 mm/rev → 0.0015625 mm per step at 3200 pulses/rev |
 | Stepper driver (×2) | Stepperonline Full Digital Stepper Driver DM542T, **Version 4.0** | 1.0–4.5 A, 18–50 VDC, opto-isolated PUL/DIR/ENA |
 | Controller | Arduino Mega 2560 | ATmega2560 @ 16 MHz; Timer1 compare interrupt for stepping |
-| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 80 samples/s with its RATE jumper cut (ships at 10, see below). Wired to the Mega (default) or to the Pi's GPIO pins. |
+| Load cell amplifier | SparkFun HX711 breakout (SEN-13879) | 24-bit, 10 samples/s as shipped (80 with its RATE jumper cut, see below). Wired to the Mega (default) or to the Pi's GPIO pins. |
 | Host | Raspberry Pi 5 | USB to the Mega; reads the load-cell amplifier with `source = "pi"` |
 | Motor power supply | _TODO: voltage / current rating_ | Must be within the DM542T's 18–50 VDC |
 
@@ -160,7 +160,7 @@ Set `source = "pi"` under `[loadcell]` in `config.toml`, or start with `--loadce
 
 - **Check it first** with `vsbc loadcell`: it prints raw counts, the sample rate and how many readings were discarded. The Mega is not needed for this.
 - **No readings at all** when the app connects: the app falls back to the HX711 wired to the Mega (`SET lc_host 0`) and says so in a warning.
-- **Timing.** The HX711 powers down if CLK stays high for more than 60 µs, and Linux can pause the reading thread for longer than that. The reader (`vsbc/loadcell_pi.py`) times every clock pulse and discards a reading when one took more than 50 µs, plus the reading after it. A discarded reading costs one sample period (12.5 ms at 80 samples/s). If `vsbc loadcell` reports more than a few percent discarded, wire the HX711 to the Mega instead (below).
+- **Timing.** The HX711 powers down if CLK stays high for more than 60 µs, and Linux can pause the reading thread for longer than that. The reader (`vsbc/loadcell_pi.py`) times every clock pulse and discards a reading when one took more than 50 µs, plus the reading after it. A discarded reading costs one sample period (100 ms at 10 samples/s, 12.5 ms at 80). If `vsbc loadcell` reports more than a few percent discarded, wire the HX711 to the Mega instead (below).
 - **If the Pi stops sending** (app frozen, HX711 unplugged), the Mega reports "load cell lost" after 0.5 s and ends a running test on its own.
 - The pin numbers are BCM GPIO numbers, not header pin numbers. Any free GPIO works; avoid GPIO2/3 (I2C) and GPIO14/15 (UART).
 
@@ -177,20 +177,20 @@ This is the default (`source = "mega"` under `[loadcell]` in `config.toml`, or s
 | HX711 E+ / E− | Load cell excitation + / − | Usually red / black |
 | HX711 A+ / A− | Load cell signal + / − | Usually green / white. Channel A, gain 128. |
 
-- **Sample rate.** The HX711 converts 10 or 80 times a second, set by its RATE pin. Use 80: see [HX711 sample rate](#hx711-sample-rate-cut-the-rate-jumper-for-80s) below. This applies to both wirings. `STATUS` reports the measured rate (`sps=`).
+- **Sample rate.** The HX711 converts 10 or 80 times a second, set by its RATE pin. The app expects 10, as shipped: see [HX711 sample rate](#hx711-sample-rate) below. This applies to both wirings. `STATUS` reports the measured rate (`sps=`).
 - Keep the load-cell wires short and twisted, and away from the motor cables.
 - DT is read with the internal pull-up enabled. If the HX711 is missing, DT stays high, the firmware reports "load cell not responding", and manual moves still work.
 - **Check it** with `vsbc loadcell` (raw counts for 5 s). When nothing arrives, it and `?` tell the two failures apart: DT never goes low (no conversions: VCC/VDD, GND or DT not on D26), or DT is still low after the 25 clock pulses so every reading is thrown away (CLK not on D27, or VDD missing). `STATUS lcbad=` counts the thrown-away readings.
 
-### HX711 sample rate: cut the RATE jumper for 80/s
+### HX711 sample rate
 
-The SparkFun HX711 breakout ships at **10 readings/s**: a solder jumper labelled RATE on the back of the board ties the chip's RATE pin to the 10/s setting. **Cutting that jumper gives 80 readings/s.** The app expects 80 (`rate_hz = 80` under `[loadcell]`), for three reasons:
+The SparkFun HX711 breakout ships at **10 readings/s**: a solder jumper labelled RATE on the back of the board ties the chip's RATE pin to the 10/s setting. The app expects 10 (`rate_hz = 10` under `[loadcell]`). **Cutting that jumper gives 80 readings/s**, which changes three things:
 
 - **Camera:** each load reading gets one saved camera frame (1:1 pairing), so 80/s gives 8 times as many frames with a load value.
-- **Stops:** the firmware reacts to a break or an overload within a few readings: a few tens of ms at 80/s, a few hundred ms at 10/s.
+- **Stops:** the firmware reacts to a break or an overload within a few readings: a few hundred ms at 10/s, a few tens of ms at 80/s.
 - **Averaging:** each reading is noisier at 80/s (the HX711 datasheet gives roughly twice the noise), but TARE and CAL average for 2 s, which is 160 readings instead of 20, so the averaged result is better than at 10/s.
 
-To cut it:
+To switch to 80/s, cut it and set `rate_hz = 80`:
 
 1. Unplug the board (or switch the tester off).
 2. On the back of the breakout, find the two pads marked **RATE**. The trace that joins them is thin and hard to see under the red solder mask.

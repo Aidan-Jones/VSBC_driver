@@ -144,7 +144,7 @@ Load cell, **wired to the Mega (default)**:
 
 Both wirings:
 
-- The HX711 samples at **10 per second** as shipped. **Cut the RATE jumper** on the back of the SparkFun board for **80 per second** ([how](docs/hardware.md#hx711-sample-rate-cut-the-rate-jumper-for-80s)). Break detection then reacts 8× faster, and the camera gets 8× more frames paired with load readings. The app expects 80 (`rate_hz` under `[loadcell]` in `config.toml`). It compares that with the rate the firmware measures and warns at connect when they differ.
+- The HX711 samples at **10 per second** as shipped, and the app expects 10 (`rate_hz` under `[loadcell]` in `config.toml`). It compares that with the rate the firmware measures and warns at connect when they differ. Cutting the RATE jumper on the back of the SparkFun board gives **80 per second** ([how](docs/hardware.md#hx711-sample-rate)): break detection then reacts 8× faster, and the camera gets 8× more frames paired with load readings. Set `rate_hz = 80` if you do.
 - **Tension must read as positive load.**
   - The break detection and the results depend on it.
   - The calibration sets the sign. The load-cell wizard asks whether the known loads hang from the load cell (tension) or are placed on it (compression); on the command line, use `--compression`.
@@ -340,7 +340,7 @@ The camera code runs in its own Python environment (`.venv-camera`, from `instal
   - set the crack direction.
 
   Use **1:1 zoom** to check the focus and **Exposure ±** to adjust (watch `sat` and `bright99.9`).
-- **Matching the load cell and the camera.** The HX711 gives 80 load readings per second with its RATE jumper cut (10 as shipped). The camera runs at its full rate (about 478 fps with the 400-row crop) and keeps the last `BUFFER_SECONDS` in RAM.
+- **Matching the load cell and the camera.** The HX711 gives 10 load readings per second as shipped (80 with its RATE jumper cut). The camera runs at its full rate (about 478 fps with the 400-row crop) and keeps the last `BUFFER_SECONDS` in RAM.
   - **The rest of the test:** for every load reading it saves the frame taken nearest that moment (about ±1 ms), so every data.csv row has its own image. Load is interpolated to each frame's exact time.
   - **The important frames:** every frame of the RAM buffer is saved at the break (when the Mega detects it), and also while **⚡ High speed** is on. These frames carry the latest load reading, which is not interpolated across the break.
 - **⚡ High speed** (Camera tab or Test tab) saves every frame from the RAM buffer onward, until you turn it off or the test ends. Press it when the break is near. The disk usually cannot keep up at the full rate, so frames wait in RAM; the camera line shows how long that can last before the oldest high-speed frames are dropped.
@@ -502,7 +502,7 @@ The same jobs in `vsbc_firmware`:
 - the serial port and baud rate;
 - the output folder;
 - where the load-cell amplifier is wired (`source = "pi"` or `"mega"`) and the Pi GPIO pins;
-- the load-cell capacity, local gravity and the HX711's sample rate (`rate_hz`: 80 with the RATE jumper cut);
+- the load-cell capacity, local gravity and the HX711's sample rate (`rate_hz`: 10 as shipped, 80 with the RATE jumper cut);
 - default test settings;
 - the watchdog timeout;
 - GUI refresh rate, font size and full screen;
@@ -548,7 +548,7 @@ Change them, then upload again.
 3. **One motor at a time**, screws uncoupled if possible: `MOTORS A`, `Z`, `V1`, `M5`. Expect 3200 steps, 5.0 mm of screw travel in 5.0 s. Then `MOTORS B` and repeat.
 4. **Both motors**: `MOTORS AB`, `M5`. Both screws move together, the same distance and direction. If B turns the wrong way, `SET invert_b 1`, `SAVE`.
 5. **Cancel**: `V0.5`, `M20`, then type `x` + Enter mid-move. It stops at once, and `H` returns to 0.
-6. **Load cell**: `vsbc loadcell`. Expect about 80 readings per second (10 means the RATE jumper is not cut yet: see [docs/hardware.md](docs/hardware.md#hx711-sample-rate-cut-the-rate-jumper-for-80s)) and counts that change when you press on the load cell. With the HX711 on the Pi, also few discarded readings (a few percent at most).
+6. **Load cell**: `vsbc loadcell`. Expect about 10 readings per second (80 if the RATE jumper is cut: see [docs/hardware.md](docs/hardware.md#hx711-sample-rate)) and counts that change when you press on the load cell. With the HX711 on the Pi, also few discarded readings (a few percent at most).
 7. **App**: on the Pi, run `vsbc`, connect, then do the calibration steps in [Calibration](#calibration) in order.
 8. **Safety tests**, with a low `max_load`:
    - press on the load cell during a jog: `OVERLOAD` stop;
@@ -588,7 +588,6 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 - [ ] **Hardware: set SW5–8 to ON ON OFF ON (3200 pulses/rev) on both drivers.** The older 400 (OFF ON ON ON) and 25000 (all OFF) settings move the wrong distance; the travel calibration flags them.
 - [ ] **Hardware: set S2 to 5V on both drivers.** It ships at 24V.
 - [ ] **Choose the load cell and wire the SparkFun HX711 to the Mega** (VCC and VDD → 5V, DAT → D26, CLK → D27). Put the load cell's capacity in `config.toml`.
-- [ ] **Cut the HX711's RATE jumper** for 80 samples/s ([how](docs/hardware.md#hx711-sample-rate-cut-the-rate-jumper-for-80s)). `vsbc loadcell` should then report about 80 per second.
 - [ ] **If the HX711 is moved to the Pi, measure its timing on the Pi 5** with `vsbc loadcell`. The reader is tested against a fake GPIO only; the share of discarded readings on the real Pi, with the GUI running, is not known yet.
 - [ ] **Run the new firmware on the real Mega.** Version 2.3.0 (protocol 3: sample times to the microsecond, 2 s TARE/CAL averaging) compiles without warnings for `arduino:avr:mega` (avr-gcc 7.3, `-Wall -Wextra`). Upload it with `vsbc flash` or the Firmware tab: this app refuses firmware that speaks protocol 2. The app is tested against the simulator, but neither has run on the hardware.
 - [ ] **Try the GUI on the Pi 5** (tested on Windows).
@@ -599,7 +598,7 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 - [ ] Only pull-to-failure is built in. Cyclic, hold/relaxation and compression tests can follow the same pattern (`RUN` with a negative distance already moves in compression).
 - [ ] **Camera on the Pi:**
   - Run `bash scripts/install_pi.sh --camera`, reboot, then `vsbc camera check`.
-  - Expect 0 dropped frames at 478 fps over USB. Check the disk write speed: 1 frame per load sample at 80/s needs about 61 MB/s, so use a USB 3 SSD for `output_dir` if the SD card is slower.
+  - Expect 0 dropped frames at 478 fps over USB. Check the disk write speed: 1 frame per load sample needs about 7.7 MB/s at 10/s (61 MB/s at 80/s), so use a USB 3 SSD for `output_dir` if the SD card is slower.
   - Check that `vsbc camera check` runs its small synthetic DIC with pyvale 2026.10.2 on the Pi.
   - The camera integration is tested with the simulated camera only.
 - [ ] **Measure the load-cell delay** with a tap test (tap the grip in view; compare the video and data.csv) and set `load_delay_ms`.
