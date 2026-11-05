@@ -27,6 +27,7 @@ from vsbc.gui.common import (
 from vsbc.gui.outputs_panel import OutputsPanel
 from vsbc.gui.panels import ConsolePanel, FirmwarePanel, JogPanel, TestPanel
 from vsbc.gui.plots import LivePlots
+from vsbc.gui.results_view import ResultsView
 from vsbc.gui.units_panel import UnitsPanel
 from vsbc.link import DeviceError, LinkClosed, list_ports
 from vsbc.machine import FirmwareMismatch, Machine
@@ -155,6 +156,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.camera_view = CameraView(self)
             self.plots.insertTab(0, self.camera_view, "Camera")      # the default tab
             self.plots.setCurrentIndex(0)
+        # Results: a finished test's frames, crack frames, plots and summary (not during a test).
+        self.results_view = ResultsView(self)
+        self.results_index = self.plots.addTab(self.results_view, "Results")
+        self._results_available = True
+        self.plots.currentChanged.connect(self._plot_tab_changed)
         splitter.addWidget(self.plots)
         self.tabs = FlowTabs()          # its tab buttons wrap onto a second row on a narrow screen
         self.test_panel = TestPanel(self)
@@ -232,6 +238,20 @@ class MainWindow(QtWidgets.QMainWindow):
     def _tab_changed(self, index: int) -> None:
         if index == self.outputs_index:
             self.outputs_panel.refresh()
+
+    def _plot_tab_changed(self, index: int) -> None:
+        if index == self.results_index:
+            self.results_view.on_shown()
+
+    def show_results(self, folder: Path) -> None:
+        """Open a test (or camera recording) in the Results tab."""
+        if not self._results_available:
+            self.warn("Results", "The Results tab is not available while a test or a camera recording runs.")
+            return
+        self.plots.blockSignals(True)            # show_folder loads it; on_shown need not load it again
+        self.plots.setCurrentIndex(self.results_index)
+        self.plots.blockSignals(False)
+        self.results_view.show_folder(Path(folder))
 
     # ------------------------------------------------------- dialogs / status --
     def ask(self, title: str, text: str) -> bool:
@@ -335,6 +355,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.postprocess.poll()
                 if self.camera is not None:
                     self.camera_panel.update_estimate()
+                if self.plots.currentWidget() is self.results_view:
+                    self.results_view.refresh_status()
             except Exception:  # noqa: BLE001
                 log.exception("post-processing update failed")
         self._update_readouts()
@@ -565,6 +587,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.camera.runner = None
         self.last_result = result
         self.test_panel.show_result(result)
+        self.results_view.mark_stale(result.folder)
         s = result.summary
         if s is not None and s.n_samples:
             self.plots.mark_peak(s.extension_at_peak_mm, s.peak_load_n)
@@ -865,6 +888,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             clear_saved_units(self.config)
         self.plots.apply_units(units)
+        self.results_view.apply_units(units)
         for panel in self.panels:
             panel.apply_units(units)
         self.status(f"Units: {units.force}, {units.length}")
@@ -891,6 +915,14 @@ class MainWindow(QtWidgets.QMainWindow):
         busy = self.busy_ops > 0 or self.runner is not None or (connected and s is not None and s.moving)
         for panel in self.panels:
             panel.update_enabled(connected, busy)
+        cam = self.camera
+        available = self.runner is None and not (cam is not None and (cam.recording is not None
+                                                                       or cam.state in ("recording", "finishing")))
+        if available != self._results_available:
+            # Reading frames would compete with the camera for the disk.
+            self._results_available = available
+            self.results_view.set_available(available)
+            self.plots.setTabEnabled(self.results_index, available)
         self.port_combo.setEnabled(not connected and not self._connecting)
         self.connect_btn.setEnabled(not self._connecting and self.runner is None)
 

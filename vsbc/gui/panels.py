@@ -90,6 +90,9 @@ class TestPanel(Panel):
         self.result.setPlaceholderText("Results appear here when the test ends.")
         self.open_btn = button("Open results folder", self.open_folder)
         self.open_btn.setEnabled(False)
+        self.view_btn = button("View results", self.view_results)
+        self.view_btn.setToolTip("The Results tab (left): camera frames around the crack, plots and summary")
+        self.view_btn.setEnabled(False)
         self.folder: Path | None = None
         self._last_result = None
 
@@ -98,7 +101,7 @@ class TestPanel(Panel):
         layout.addWidget(self.start_btn)
         layout.addWidget(self.high_speed_btn)
         layout.addWidget(self.result, 1)
-        layout.addWidget(self.open_btn)
+        layout.addLayout(flow(self.view_btn, self.open_btn))
         self.high_speed_btn.setVisible(win.config.camera.enabled)
 
     def build_spec(self) -> PullTestSpec:
@@ -123,6 +126,7 @@ class TestPanel(Panel):
         self.result.setPlainText(f"Running {spec.specimen_id} at "
                                  f"{u.length_from_mm(spec.rate_mm_min):g} {u.rate_min_label}...")
         self.open_btn.setEnabled(False)
+        self.view_btn.setEnabled(False)
 
     def show_result(self, result) -> None:
         self._last_result = result
@@ -137,6 +141,7 @@ class TestPanel(Panel):
         self.result.setPlainText("\n".join(lines))
         self.folder = result.folder
         self.open_btn.setEnabled(result.folder is not None)
+        self.view_btn.setEnabled(result.folder is not None)
 
     def apply_units(self, units: Units) -> None:
         super().apply_units(units)
@@ -146,6 +151,10 @@ class TestPanel(Panel):
     def open_folder(self) -> None:
         if self.folder:
             QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(self.folder)))
+
+    def view_results(self) -> None:
+        if self.folder:
+            self.win.show_results(self.folder)
 
     def toggle_high_speed(self) -> None:
         self.win.set_high_speed(self.high_speed_btn.isChecked())
@@ -157,6 +166,7 @@ class TestPanel(Panel):
 
     def update_enabled(self, connected: bool, busy: bool) -> None:
         self.start_btn.setEnabled(connected and not busy)
+        self.view_btn.setEnabled(self.folder is not None and self.win.runner is None)
         camera = self.win.camera
         self.high_speed_btn.setEnabled(camera is not None and camera.state == "recording")
 

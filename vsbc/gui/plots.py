@@ -12,6 +12,8 @@ from vsbc.gui.common import FlowTabs, GrowingArray, QtGui, em, np, pg
 from vsbc.protocol import Sample
 from vsbc.units import Units
 
+IDLE_WINDOW_S = 20.0      # load / position vs time before the first test: only the last 20 s
+
 
 class LivePlots(FlowTabs):
     def __init__(self, window_s: float = 60.0, parent=None, units: Units | None = None):
@@ -48,6 +50,7 @@ class LivePlots(FlowTabs):
         self._ext = GrowingArray()
         self._test_load = GrowingArray()
         self._peak: tuple[float, float] | None = None
+        self._test_started = False        # until the first test: show only the last IDLE_WINDOW_S
         self._dirty = False
         # Axis numbers and labels in the GUI's text size (pyqtgraph's own default is small and fixed).
         tick_font = QtGui.QFont()
@@ -93,6 +96,7 @@ class LivePlots(FlowTabs):
         self._dirty = True
 
     def begin_test(self) -> None:
+        self._test_started = True
         self._ext.clear()
         self._test_load.clear()
         self._peak = None
@@ -114,10 +118,13 @@ class LivePlots(FlowTabs):
         u = self.units
         if self._t:
             t = np.fromiter(self._t, float, len(self._t))
-            self.load_curve.setData(t, u.force_from_n(np.fromiter(self._load, float, len(self._load))),
-                                    connect="finite")
-            self.pos_curve.setData(t, u.length_from_mm(np.fromiter(self._pos, float, len(self._pos))),
-                                   connect="finite")
+            load = np.fromiter(self._load, float, len(self._load))
+            pos = np.fromiter(self._pos, float, len(self._pos))
+            if not self._test_started:
+                first = int(np.searchsorted(t, t[-1] - IDLE_WINDOW_S))
+                t, load, pos = t[first:], load[first:], pos[first:]
+            self.load_curve.setData(t, u.force_from_n(load), connect="finite")
+            self.pos_curve.setData(t, u.length_from_mm(pos), connect="finite")
         if u.is_default:
             self.test_curve.setData(self._ext.view(), self._test_load.view(), connect="finite")
         else:

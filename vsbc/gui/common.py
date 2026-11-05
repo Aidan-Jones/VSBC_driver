@@ -292,6 +292,20 @@ class FlowTabs(QtWidgets.QWidget):
     def setTabText(self, index: int, text: str) -> None:  # noqa: N802
         self._buttons[index].setText(text)
 
+    def isTabEnabled(self, index: int) -> bool:  # noqa: N802
+        return self._buttons[index].isEnabled()
+
+    def setTabEnabled(self, index: int, enabled: bool) -> None:  # noqa: N802
+        """Grey out a tab's button; if it is the one showing, show the first enabled tab instead."""
+        if not 0 <= index < self.count():
+            return
+        self._buttons[index].setEnabled(enabled)
+        if not enabled and self.currentIndex() == index:
+            for i, b in enumerate(self._buttons):
+                if b.isEnabled():
+                    self.setCurrentIndex(i)
+                    break
+
     def currentIndex(self) -> int:  # noqa: N802
         return self._stack.currentIndex()
 
@@ -299,7 +313,7 @@ class FlowTabs(QtWidgets.QWidget):
         return self._stack.currentWidget()
 
     def setCurrentIndex(self, index: int) -> None:  # noqa: N802
-        if 0 <= index < self.count():
+        if 0 <= index < self.count() and self._buttons[index].isEnabled():
             self._stack.setCurrentIndex(index)
 
     def setCurrentWidget(self, widget) -> None:  # noqa: N802

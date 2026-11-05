@@ -67,11 +67,13 @@ class OutputsPanel(Panel):
 
         self.refresh_btn = button("Refresh", self.refresh)
         self.open_btn = button("Open folder", self.open_selected)
+        self.view_btn = button("View results", self.view_selected)
+        self.view_btn.setToolTip("Open it in the Results tab (left)")
         self.delete_images_btn = button("Delete camera images...", self.delete_images)
         self.delete_images_btn.setToolTip("Frees most of the space: keeps data.csv, the video, DIC results and plots")
         self.delete_btn = button("Delete...", self.delete_selected)
         self.logs_btn = button("Delete logs older than 30 days", self.delete_logs)
-        actions = flow(self.refresh_btn, self.open_btn, self.delete_images_btn, self.delete_btn)
+        actions = flow(self.refresh_btn, self.view_btn, self.open_btn, self.delete_images_btn, self.delete_btn)
 
         usb_box = QtWidgets.QGroupBox("Copy to a USB drive")
         self.drives = narrow_combo(QtWidgets.QComboBox())
@@ -207,10 +209,16 @@ class OutputsPanel(Panel):
         busy = self._busy_paths()
         free = bool(chosen) and not any(str(e.path) in busy for e in chosen)
         self.open_btn.setEnabled(len(chosen) == 1)
+        self.view_btn.setEnabled(len(chosen) == 1 and self.win.runner is None)
         self.delete_btn.setEnabled(free)
         self.delete_images_btn.setEnabled(free and any(e.n_images for e in chosen))
         self.copy_btn.setEnabled(bool(chosen) and not self._copying and self.drives.count() > 0
                                  and self.drives.currentData() is not None)
+
+    def view_selected(self) -> None:
+        chosen = self.selected()
+        if chosen:
+            self.win.show_results(chosen[0].path)
 
     def open_selected(self) -> None:
         chosen = self.selected()

@@ -236,8 +236,8 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 │  123.45 N      12.3450 mm        2.3450 mm          TEST                  │
 ├──────────────────────────────────────────┬────────────────────────────────┤
 │ [Camera] [Load – extension]              │ [Test] [Camera] [Outputs]      │
-│          [Load & position – time]        │ [Jog] [Calibrate] [Units] ...  │
-│   (camera preview, or live plot)         │  (tab contents)                │
+│ [Load & position – time] [Results]       │ [Jog] [Calibrate] [Units] ...  │
+│   (camera preview, live plot, results)   │  (tab contents)                │
 └──────────────────────────────────────────┴────────────────────────────────┘
 ```
 
@@ -247,15 +247,16 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 - **Left tabs**:
   - **Camera** (the default): the live preview, the ROI editor and the high-speed button (see [DIC camera](#dic-camera)).
   - **Load – extension**: the current test.
-  - **Load & position – time**: the last 60 s.
+  - **Load & position – time**: the last 60 s. Until the first test after starting the app, only the last 20 s.
+  - **Results**: a finished test's camera frames, with the frames where the crack happened picked out. Also its plots and summary (see [Viewing the results](#viewing-the-results)). Greyed out while a test or a camera recording runs.
 
 Tabs on the right:
 
 | Tab | What it does |
 |---|---|
-| **Test** | Specimen ID, rate, maximum extension, load and break limits, optional area and gauge length, tare before starting, return afterwards. **Start test**, the **⚡ High-speed camera** button during a test, then the results summary and **Open results folder**. |
+| **Test** | Specimen ID, rate, maximum extension, load and break limits, optional area and gauge length, tare before starting, return afterwards. **Start test**, the **⚡ High-speed camera** button during a test, then the results summary, **View results** (the Results tab) and **Open results folder**. |
 | **Camera** | Camera settings from `camera/capture_dic_live.py`: recording with each test, frames per load sample, RAM buffer, settle time, load-cell delay, DIC options, and what runs after the test (video, DIC, strain, crack tips). It also checks the camera scripts and has Reload, Process a folder, and Check camera. |
-| **Outputs** | Disk space, every test and recording with its size, **Copy to a USB drive**, delete a test or only its camera images, delete old logs. |
+| **Outputs** | Disk space, every test and recording with its size, **View results**, **Copy to a USB drive**, delete a test or only its camera images, delete old logs. |
 | **Jog** | Move the crosshead: rate, step (0.01 / 0.1 / 1 / 10 mm, or 0.001–0.5 in), ▲ / ▼ buttons (also the arrow keys), Go to, Home, Tare. Set the position reference. Service mode: move one motor only. |
 | **Calibrate** | Shows the calibration stored on the Mega. Load-cell and travel wizards, **flip load sign**, direction check, travel limits, overload cutoff. |
 | **Units** | Force in N or lbf; travel in mm, cm, m or in. The GUI uses these units everywhere. data.csv keeps its N/mm columns and gets extra columns in the chosen units; summary.txt, plot.png and the video use them too. The choice is remembered. |
@@ -359,6 +360,24 @@ The camera code runs in its own Python environment (`.venv-camera`, from `instal
   Choose which ones in the Camera panel. **Process a folder…** or `vsbc camera process <folder>` runs them again.
 - **Live DIC** during the test is off by default: on the Pi it competes with the camera for the CPU.
 - A recording without a test: **● Record** in the Camera tab (it goes to `Outputs/camera/<date>/`).
+
+### Viewing the results
+
+The **Results** tab (left side) shows a finished test or camera recording. **View results** in the Test tab or the Outputs tab opens one there; the list at the top has them all, newest first. The tab is greyed out while a test or a camera recording runs, so reading frames never competes with the camera for the disk.
+
+- **Frames**:
+  - **Scrub and play.** Use the slider, ◀ / ▶ (one frame) and ◀◀ / ▶▶ (ten frames), or **Play** at 5, 15 or 30 fps.
+  - **Overlays.** The ROI, the notch, and the crack tips from both trackers (red + image, cyan × opening, yellow ○ by hand) are drawn on the frame. **DIC map** shows pyvale's vertical displacement on the frames DIC ran on.
+  - **Load–time curve.** The curve below the frame shows where the frame is. Click it to jump there. Full-rate windows are shaded orange.
+- **The crack frames.** The Mega detects the break by comparing load readings, so the crack happened between the last reading before the load fell (the break load) and the next reading. Those times are moved back by the load-cell delay, onto the frames' clock.
+  - The frames in between are the **crack interval**: about 48 at 10 load readings/s and 478 fps, about 6 at 80/s. They are shaded red on the curve and tagged **CRACK**.
+  - **Crack frames only** plays the interval plus 50 frames either side, in a loop.
+  - The **estimated crack frame** (★) is the frame that changes most from the one before, inside the ROI, in and just around the interval. **Jump to crack** goes there.
+  - Without a detected break, the last full-rate window is shown instead.
+  - If the frames around the break were not saved at full rate, the tab names the two frames the break fell between and says to turn on **Save the RAM buffer at the break**.
+- **Plots**: plot.png and the scripts' plots, scaled to fit. **Open full size** opens one in the system viewer.
+- **Summary**: summary.txt, the frame pairing and frame counts, the full-rate windows, the crack-tip trackers and any warnings.
+- **Play video** opens video.mp4 in the system player. **⟳** reads the files again, for example when DIC finishes after you opened the test.
 
 ---
 

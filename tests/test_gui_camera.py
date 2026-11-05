@@ -153,6 +153,17 @@ def test_test_recorded_with_the_simulated_camera(app, config):
         assert _wait(app, lambda: (folder / "video.mp4").is_file() and not win.postprocess.busy, 60)
         assert win.postprocess.done and win.postprocess.done[-1].ok, win.postprocess.summary()
         assert "Camera:" in win.test_panel.result.toPlainText()
+
+        # Results tab: the simulated specimen cracks at the break, and the RAM buffer was saved then.
+        win.test_panel.view_btn.click()
+        view = win.results_view
+        assert win.plots.currentWidget() is view
+        assert _wait(app, lambda: view.res is not None and view.res.test == folder, 10)
+        crack = view.res.crack
+        assert crack is not None and crack.source == "break" and crack.n_frames >= 1
+        assert view.res.video is not None and view.video_btn.isEnabled()
+        view.jump_to_crack()
+        assert crack.start <= view.pos <= crack.end
     finally:
         win.close()
         app.processEvents()

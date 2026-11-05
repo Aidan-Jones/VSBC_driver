@@ -29,6 +29,31 @@ def countdown_style() -> str:
             f"padding: {em(0.4)}px; border-radius: {em(0.3)}px; }}")
 
 
+def dic_overlay(path):
+    """(RGBA image, QRectF in image pixels) of the vertical displacement in one of pyvale's result CSVs
+    (ss_x, ss_y, u, v, m, conv, ... by position), or None when it cannot be read."""
+    try:
+        data = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
+    except (OSError, ValueError):
+        return None
+    if data.shape[1] < 6:
+        return None
+    x, y, v, conv = data[:, 0], data[:, 1], data[:, 3], data[:, 5].astype(bool)
+    xs, ys = np.unique(x), np.unique(y)
+    if xs.size < 2 or ys.size < 2:
+        return None
+    grid = np.full((ys.size, xs.size), np.nan)
+    grid[np.searchsorted(ys, y), np.searchsorted(xs, x)] = np.where(conv, v, np.nan)
+    vmax = max(float(np.nanmax(np.abs(grid))) if np.isfinite(grid).any() else 0.0, 0.05)
+    lut = pg.colormap.get("CET-D1").getLookupTable(nPts=256)
+    idx = np.clip(((np.nan_to_num(grid) / vmax + 1) * 127.5).astype(int), 0, 255)
+    rgba = np.zeros(grid.shape + (4,), dtype=np.uint8)
+    rgba[..., :3] = lut[idx][..., :3]
+    rgba[..., 3] = np.where(np.isfinite(grid), 150, 0)
+    dx, dy = xs[1] - xs[0], ys[1] - ys[0]
+    return rgba, QtCore.QRectF(xs[0] - dx / 2, ys[0] - dy / 2, dx * xs.size, dy * ys.size)
+
+
 class CameraView(QtWidgets.QWidget):
     def __init__(self, win):
         super().__init__()
@@ -341,28 +366,10 @@ class CameraView(QtWidgets.QWidget):
             self._dic_text = f"Live DIC error: {msg[1]}"
 
     def _show_dic_map(self, path) -> None:
-        """pyvale's result CSV: ss_x, ss_y, u, v, m, conv, ... (by position)."""
-        try:
-            data = np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
-        except (OSError, ValueError):
-            return
-        if data.shape[1] < 6:
-            return
-        x, y, v, conv = data[:, 0], data[:, 1], data[:, 3], data[:, 5].astype(bool)
-        xs, ys = np.unique(x), np.unique(y)
-        if xs.size < 2 or ys.size < 2:
-            return
-        grid = np.full((ys.size, xs.size), np.nan)
-        grid[np.searchsorted(ys, y), np.searchsorted(xs, x)] = np.where(conv, v, np.nan)
-        vmax = max(float(np.nanmax(np.abs(grid))) if np.isfinite(grid).any() else 0.0, 0.05)
-        lut = pg.colormap.get("CET-D1").getLookupTable(nPts=256)
-        idx = np.clip(((np.nan_to_num(grid) / vmax + 1) * 127.5).astype(int), 0, 255)
-        rgba = np.zeros(grid.shape + (4,), dtype=np.uint8)
-        rgba[..., :3] = lut[idx][..., :3]
-        rgba[..., 3] = np.where(np.isfinite(grid), 150, 0)
-        dx, dy = xs[1] - xs[0], ys[1] - ys[0]
-        self.dic_item.setImage(rgba, autoLevels=False)
-        self.dic_item.setRect(QtCore.QRectF(xs[0] - dx / 2, ys[0] - dy / 2, dx * xs.size, dy * ys.size))
+        overlay = dic_overlay(path)
+        if overlay is not None:
+            self.dic_item.setImage(overlay[0], autoLevels=False)
+            self.dic_item.setRect(overlay[1])
 
     # ------------------------------------------------------------------ ROI --
     def draw_roi(self) -> None:

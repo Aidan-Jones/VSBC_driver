@@ -58,6 +58,10 @@ On the first real Pi run, check:
   5. the crack trackers.
 
   Plots from `plt.show()` are saved to `camera/plots/`. To re-run: Camera panel > **Process a folder…**, or `vsbc camera process <test folder>`.
+- **Results tab** (left; **View results** in the Test or Outputs tab): scrub or play the saved frames with the ROI, the notch, the crack tips and the DIC map drawn on them. The plots and the summary are there too.
+  - **Crack frames**: the frames between the last load reading before the drop and the first one after it, moved back by the load-cell delay. Around 48 frames at 10 load readings/s and 478 fps.
+  - The crack window adds 50 frames either side.
+  - The estimated crack frame is the largest frame-to-frame change inside the ROI. This is in `vsbc/camera/results.py`; it reads only frames.csv, data.csv and the TIFFs, so it needs nothing from this folder.
 - **Files**, per test:
 
   ```
