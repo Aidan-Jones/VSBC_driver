@@ -62,6 +62,10 @@ On the first real Pi run, check:
   - **Crack frames**: the frames between the last load reading before the drop and the first one after it, moved back by the load-cell delay. Around 48 frames at 10 load readings/s and 478 fps.
   - The crack window adds 50 frames either side.
   - The estimated crack frame is the largest frame-to-frame change inside the ROI. This is in `vsbc/camera/results.py`; it reads only frames.csv, data.csv and the TIFFs, so it needs nothing from this folder.
+- **DIC tab** (left, after Results):
+  - Run DIC, strain and the crack trackers on any test, after a checklist (ROI, notch, scripts, pyvale in the camera environment, disk). It uses the same jobs as after a test.
+  - View pyvale's displacement and strain over the frames.
+  - Mark crack tips by hand. They are written to `crack_tip_manual.csv` in `crack_tip_viewer.py`'s format, so either tool can add to them.
 - **Files**, per test:
 
   ```

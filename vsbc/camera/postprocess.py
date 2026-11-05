@@ -58,6 +58,7 @@ class Options:
     subset_size: int = 0
     subset_step: int = 0
     max_displacement: int = 0
+    redo: bool = False               # DIC again on frames that already have results
     notes: list[str] = field(default_factory=list)
 
     @classmethod
@@ -127,6 +128,8 @@ class PostProcessor:
                                     ("--max-displacement", options.max_displacement)):
                     if value:
                         args += [flag, str(value)]
+                if options.redo:
+                    args.append("--redo")
                 jobs.append(Job(f"{name}: DIC", "dic", args, run))
         dic_ok = any(j.kind == "dic" for j in jobs) or has_results
         needs = ("dic",) if any(j.kind == "dic" for j in jobs) else ()
@@ -249,8 +252,24 @@ class PostProcessor:
             except OSError:
                 pass
 
+    def running_for(self, run: Path) -> bool:
+        """A job for this recording folder is running or queued."""
+        run = Path(run)
+        return (self.current is not None and Path(self.current.run) == run) or any(Path(j.run) == run
+                                                                                   for j in self.queue)
+
+    def cancel_run(self, run: Path) -> None:
+        """Drop this recording's queued jobs and stop its running one; other tests' jobs carry on."""
+        run = Path(run)
+        self.queue = deque(j for j in self.queue if Path(j.run) != run)
+        if self.current is not None and Path(self.current.run) == run:
+            self._terminate()
+
     def cancel(self) -> None:
         self.queue.clear()
+        self._terminate()
+
+    def _terminate(self) -> None:
         proc = self.proc
         if proc is not None:
             try:

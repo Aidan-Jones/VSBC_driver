@@ -27,6 +27,7 @@ from vsbc.gui.common import (
 from vsbc.gui.outputs_panel import OutputsPanel
 from vsbc.gui.panels import ConsolePanel, FirmwarePanel, JogPanel, TestPanel
 from vsbc.gui.plots import LivePlots
+from vsbc.gui.dic_view import DicView
 from vsbc.gui.results_view import ResultsView
 from vsbc.gui.units_panel import UnitsPanel
 from vsbc.link import DeviceError, LinkClosed, list_ports
@@ -159,6 +160,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Results: a finished test's frames, crack frames, plots and summary (not during a test).
         self.results_view = ResultsView(self)
         self.results_index = self.plots.addTab(self.results_view, "Results")
+        # DIC: choose a test, check it, run DIC, and view displacement, strain and crack tips.
+        self.dic_view = DicView(self)
+        self.dic_index = self.plots.addTab(self.dic_view, "DIC")
         self._results_available = True
         self.plots.currentChanged.connect(self._plot_tab_changed)
         splitter.addWidget(self.plots)
@@ -242,6 +246,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _plot_tab_changed(self, index: int) -> None:
         if index == self.results_index:
             self.results_view.on_shown()
+        elif index == self.dic_index:
+            self.dic_view.on_shown()
 
     def show_results(self, folder: Path) -> None:
         """Open a test (or camera recording) in the Results tab."""
@@ -357,6 +363,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.camera_panel.update_estimate()
                 if self.plots.currentWidget() is self.results_view:
                     self.results_view.refresh_status()
+                self.dic_view.refresh_status()
             except Exception:  # noqa: BLE001
                 log.exception("post-processing update failed")
         self._update_readouts()
@@ -588,6 +595,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.last_result = result
         self.test_panel.show_result(result)
         self.results_view.mark_stale(result.folder)
+        self.dic_view.mark_stale(result.folder)
         s = result.summary
         if s is not None and s.n_samples:
             self.plots.mark_peak(s.extension_at_peak_mm, s.peak_load_n)
@@ -790,8 +798,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.test_panel.result.appendPlainText(extra)
         self.status(text)
 
-    def queue_postprocess(self, folder: Path) -> None:
-        """Process a folder: a test folder, its camera/ folder, or a recording made from the Camera tab."""
+    def queue_postprocess(self, folder: Path, options=None) -> None:
+        """Process a folder: a test folder, its camera/ folder, or a recording made from the Camera tab.
+
+        `options` (the DIC tab's choices) replaces the Camera panel's "After the test" choices."""
         from vsbc.camera.roi import load_roi, save_roi
         from vsbc.camera.sync import read_json, sync_camera, sync_test
 
@@ -809,10 +819,11 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.roi.matches(settings.get("height", 0), settings.get("width", 0)) and self.ask(
                     "Process", "This recording has no ROI. Use the current ROI (Camera tab) for it?"):
                 save_roi(run / "roi.npz", self.roi)
-        options = self.camera_panel.post_options() if self.camera is not None else None
+        if options is None:
+            options = self.camera_panel.post_options() if self.camera is not None else None
         if options is None:
             return
-        delay = self.camera_panel.load_delay.value()
+        delay = self.camera_panel.load_delay.value() if self.camera is not None else self.config.camera.load_delay_ms
         settings = self.script_settings()
         synced = (run / "samples.csv").is_file() or (run / "camera_clock.csv").is_file()
 
@@ -889,6 +900,7 @@ class MainWindow(QtWidgets.QMainWindow):
             clear_saved_units(self.config)
         self.plots.apply_units(units)
         self.results_view.apply_units(units)
+        self.dic_view.apply_units(units)
         for panel in self.panels:
             panel.apply_units(units)
         self.status(f"Units: {units.force}, {units.length}")
@@ -923,6 +935,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._results_available = available
             self.results_view.set_available(available)
             self.plots.setTabEnabled(self.results_index, available)
+            self.dic_view.set_available(available)
+            self.plots.setTabEnabled(self.dic_index, available)
         self.port_combo.setEnabled(not connected and not self._connecting)
         self.connect_btn.setEnabled(not self._connecting and self.runner is None)
 

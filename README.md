@@ -236,7 +236,7 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 │  123.45 N      12.3450 mm        2.3450 mm          TEST                  │
 ├──────────────────────────────────────────┬────────────────────────────────┤
 │ [Camera] [Load – extension]              │ [Test] [Camera] [Outputs]      │
-│ [Load & position – time] [Results]       │ [Jog] [Calibrate] [Units] ...  │
+│ [Load & position – time] [Results] [DIC] │ [Jog] [Calibrate] [Units] ...  │
 │   (camera preview, live plot, results)   │  (tab contents)                │
 └──────────────────────────────────────────┴────────────────────────────────┘
 ```
@@ -249,6 +249,7 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
   - **Load – extension**: the current test.
   - **Load & position – time**: the last 60 s. Until the first test after starting the app, only the last 20 s.
   - **Results**: a finished test's camera frames, with the frames where the crack happened picked out. Also its plots and summary (see [Viewing the results](#viewing-the-results)). Greyed out while a test or a camera recording runs.
+  - **DIC**: choose a test, check it, run DIC on it, and look at the displacement, strain and crack tips (see [The DIC tab](#the-dic-tab)). Greyed out while a test or a camera recording runs.
 
 Tabs on the right:
 
@@ -378,6 +379,34 @@ The **Results** tab (left side) shows a finished test or camera recording. **Vie
 - **Plots**: plot.png and the scripts' plots, scaled to fit. **Open full size** opens one in the system viewer.
 - **Summary**: summary.txt, the frame pairing and frame counts, the full-rate windows, the crack-tip trackers and any warnings.
 - **Play video** opens video.mp4 in the system player. **⟳** reads the files again, for example when DIC finishes after you opened the test.
+
+### The DIC tab
+
+The **DIC** tab (left side, after Results) runs DIC on a test you choose and shows what it produced. Pick the test at the top; the list shows only tests and recordings with camera frames, and how many frames already have DIC.
+
+- **Run**:
+  - **What to run.** DIC, strain + plots, and the two crack trackers. The parameters (whole-test and full-rate frame steps, subset size and step, max displacement) start from the Camera panel's values. **Redo** analyses again frames that already have results.
+  - **Checks.** A checklist runs before anything can start:
+    - the camera images and reference frame 0 are there;
+    - the ROI and seed are usable, with **Use the current ROI** when the recording has none but the Camera tab's ROI fits;
+    - a notch tip is set (the trackers need it);
+    - the frames are synced;
+    - how many frames DIC will analyse, and how many already have results;
+    - strain and the trackers have DIC results to work from;
+    - the camera scripts are OK;
+    - the camera environment imports pyvale and OpenCV (with their versions);
+    - there is enough disk space;
+    - DIC is not already running for this test.
+
+    **Run** is enabled only when nothing is marked ✗.
+  - **Running.** The jobs are the same ones as after a test: low priority, one at a time, paused while a test records. The progress shows here. **Cancel** stops only this test's jobs. When they finish, the other sub-tabs reload.
+- **DIC**: the displacement over the frame: v (vertical), u (horizontal) or |d|. A colour bar shows the 2nd–98th percentile over the test, or over this frame with **Colours per frame**. Below the frame: the mean displacement against time. **Full-rate window only** limits it to the break.
+- **Strain**: the same for pyvale's strain: eps_yy (default), eps_xx, eps_xy. Below the frame: the mean strain (µε) and the load against time.
+- **Crack tip**: the full-rate window's frames (**All frames** for every saved frame) with both trackers' tips (red + image, cyan × opening) and an optional strain overlay.
+  - **Click the frame to mark the crack tip by hand**; right-click or **Delete mark** removes it. The marks are saved at once to `camera/crack_tip_manual.csv`, the same file `crack_tip_viewer.py` writes, which `crack_tip_image.py` can use.
+  - **Zoom to tip** follows the tip.
+  - Below the frame: crack length against time for each tracker and your marks, with the peak crack speed and how far each tracker is from your marks.
+- **Log**: this session's jobs for the test and the end of its `postprocess.log`.
 
 ---
 
