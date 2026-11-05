@@ -13,14 +13,20 @@ import logging
 import time
 
 from vsbc.camera.roi import Roi, outline, polygon_mask, rect_mask
-from vsbc.gui.common import HIGH_SPEED_STYLE, QtCore, QtWidgets, button, np, pg
+from vsbc.gui.common import FlowLayout, QtCore, QtWidgets, button, em, flow, high_speed_style, np, pg
 
 log = logging.getLogger(__name__)
 
-STATUS_STYLE = "QLabel { font-family: Consolas, 'DejaVu Sans Mono', monospace; font-size: 9pt; }"
-COUNTDOWN_STYLE = ("QLabel { background: #7d3c98; color: white; font-size: 16pt; font-weight: bold; "
-                   "padding: 6px; border-radius: 4px; }")
 ROI_PEN = "#00c8ff"
+
+
+def status_style() -> str:
+    return (f"QLabel {{ font-family: Consolas, 'DejaVu Sans Mono', monospace; font-size: {max(11, em(0.85))}px; }}")
+
+
+def countdown_style() -> str:
+    return (f"QLabel {{ background: #7d3c98; color: white; font-size: {em(1.4)}px; font-weight: bold; "
+            f"padding: {em(0.4)}px; border-radius: {em(0.3)}px; }}")
 
 
 class CameraView(QtWidgets.QWidget):
@@ -55,25 +61,25 @@ class CameraView(QtWidgets.QWidget):
         self.dic_map = QtWidgets.QCheckBox("DIC map")
         self.dic_map.setToolTip("Overlay the newest live-DIC vertical displacement (needs live DIC on)")
         self.dic_map.toggled.connect(lambda on: self.dic_item.setVisible(on))
-        self.hs_btn = button("⚡  HIGH SPEED: save every frame", self.toggle_high_speed, HIGH_SPEED_STYLE, 48)
+        self.hs_btn = button("⚡  HIGH SPEED: save every frame", self.toggle_high_speed, high_speed_style(), em(3))
         self.hs_btn.setCheckable(True)
         self.hs_btn.setToolTip("Keeps the last seconds held in RAM and saves every frame from now until you turn "
                                "it off or the test ends (the camera and the test stop together). Press it when "
                                "the break is near.")
 
-        bar = QtWidgets.QHBoxLayout()
-        for w in (self.start_btn, self.exp_down, self.exp_up, self.zoom_btn, self.roi_btn, self.marker_btn,
-                  self.record_btn, self.dic_map):
-            bar.addWidget(w)
-        bar.addStretch(1)
+        # One bar that wraps onto as many rows as the width needs (HIGH SPEED on its own when it is narrow).
+        bar = flow(self.start_btn, self.exp_down, self.exp_up, self.zoom_btn, self.roi_btn, self.marker_btn,
+                   self.record_btn, self.dic_map, self.hs_btn)
 
         self.countdown = QtWidgets.QLabel()
-        self.countdown.setStyleSheet(COUNTDOWN_STYLE)
+        self.countdown.setStyleSheet(countdown_style())
+        self.countdown.setWordWrap(True)
         self.countdown.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.countdown.hide()
 
         self.view = pg.GraphicsLayoutWidget()
         self.view.setBackground("k")
+        self.view.setMinimumHeight(em(4))         # a short screen keeps the buttons; the preview shrinks
         self.vb = self.view.addViewBox(lockAspect=True, invertY=True, enableMenu=False)
         self.image = pg.ImageItem(axisOrder="row-major")
         self.vb.addItem(self.image)
@@ -97,8 +103,7 @@ class CameraView(QtWidgets.QWidget):
         self.vb.addItem(self.placeholder)
 
         self.edit_bar = QtWidgets.QWidget()
-        edit = QtWidgets.QHBoxLayout(self.edit_bar)
-        edit.setContentsMargins(0, 0, 0, 0)
+        edit = FlowLayout(self.edit_bar)
         self.rect_btn = button("Rectangle", lambda: self._set_shape("rect"))
         self.poly_btn = button("Polygon", lambda: self._set_shape("poly"))
         self.seed_btn = button("Place seed", lambda: self._arm("seed"))
@@ -116,13 +121,13 @@ class CameraView(QtWidgets.QWidget):
 
         self.lines = [QtWidgets.QLabel() for _ in range(3)]
         for label in self.lines:
-            label.setStyleSheet(STATUS_STYLE)
+            label.setStyleSheet(status_style())
+            label.setWordWrap(True)          # long recording lines wrap instead of widening the window
             label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addLayout(bar)
-        layout.addWidget(self.hs_btn)
         layout.addWidget(self.countdown)
         layout.addWidget(self.view, 1)
         layout.addWidget(self.edit_bar)
@@ -224,8 +229,8 @@ class CameraView(QtWidgets.QWidget):
             text = {"off": "Camera off.", "starting": "Starting the camera process..."}.get(cam.state, "")
             if cam.error:
                 text = f"Camera: {cam.error}"
-            self.lines[0].setText(text)
-            self.lines[1].setText(self._script_note())
+            self._set_line(0, text)
+            self._set_line(1, self._script_note())
             if cam.state != "starting" and not cam.preview:
                 self._show_placeholder("Camera off" if cam.state == "off" else "No camera")
         else:
@@ -237,10 +242,15 @@ class CameraView(QtWidgets.QWidget):
                      f"bright99.9 {header.get('p999', 0):.0f}", f"sat {header.get('sat', 0):.2f} %"]
             if temp is not None:
                 parts.append(f"{temp:.0f} °C")
-            self.lines[0].setText("  ·  ".join(parts))
-            self.lines[1].setText(self._recording_text())
+            self._set_line(0, "  ·  ".join(parts))
+            self._set_line(1, self._recording_text())
         pp = self.win.postprocess
-        self.lines[2].setText(self._dic_text or (f"Post-processing: {pp.summary()}" if pp.busy or pp.done else ""))
+        self._set_line(2, self._dic_text or (f"Post-processing: {pp.summary()}" if pp.busy or pp.done else ""))
+
+    def _set_line(self, index: int, text: str) -> None:
+        """Status line; an empty one takes no room (the preview gets it)."""
+        self.lines[index].setText(text)
+        self.lines[index].setVisible(bool(text))
 
     def _script_note(self) -> str:
         hello = self.camera.hello

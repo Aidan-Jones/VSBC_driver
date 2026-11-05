@@ -21,8 +21,8 @@ from vsbc.analysis import tension_threshold_n
 from vsbc.config import REPO_ROOT, Config
 from vsbc.gui.calibration_panel import CalibratePanel
 from vsbc.gui.common import (
-    BANNER_CRITICAL_STYLE, BANNER_STYLE, CAPTION_STYLE, READOUT_STYLE, STOP_STYLE, QShortcut, Qt, QtCore, QtGui,
-    QtWidgets, apply_style, button, exec_app,
+    FlowTabs, QShortcut, Qt, QtCore, QtGui, QtWidgets, apply_style, banner_style, button, caption_style, em,
+    exec_app, narrow_combo, readout_style, screen_size, stop_style,
 )
 from vsbc.gui.outputs_panel import OutputsPanel
 from vsbc.gui.panels import ConsolePanel, FirmwarePanel, JogPanel, TestPanel
@@ -117,15 +117,15 @@ class MainWindow(QtWidgets.QMainWindow):
         root = QtWidgets.QVBoxLayout(central)
 
         top = QtWidgets.QHBoxLayout()
-        self.port_combo = QtWidgets.QComboBox()
-        self.port_combo.setMinimumWidth(240)
+        self.port_combo = narrow_combo(QtWidgets.QComboBox(), 16)   # long port descriptions show in the list
         refresh = button("⟳", self.refresh_ports)
-        refresh.setFixedWidth(48)
+        refresh.setFixedWidth(em(3))
         refresh.setToolTip("Rescan serial ports")
         self.connect_btn = button("Connect", self.toggle_connection)
         self.conn_label = QtWidgets.QLabel("Not connected")
-        self.stop_btn = button("STOP", self.stop_all, STOP_STYLE)
-        self.stop_btn.setMinimumSize(170, 64)
+        self.conn_label.setWordWrap(True)
+        self.stop_btn = button("STOP", self.stop_all, stop_style())
+        self.stop_btn.setMinimumSize(em(8), em(3.4))
         self.stop_btn.setToolTip("Stop the motors now (Esc or Space)")
         top.addWidget(self.port_combo)
         top.addWidget(refresh)
@@ -142,7 +142,7 @@ class MainWindow(QtWidgets.QMainWindow):
         root.addLayout(readouts)
 
         self.banner = QtWidgets.QLabel()
-        self.banner.setStyleSheet(BANNER_STYLE)
+        self.banner.setStyleSheet(banner_style())
         self.banner.setWordWrap(True)
         self.banner.hide()
         root.addWidget(self.banner)
@@ -156,8 +156,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plots.insertTab(0, self.camera_view, "Camera")      # the default tab
             self.plots.setCurrentIndex(0)
         splitter.addWidget(self.plots)
-        self.tabs = QtWidgets.QTabWidget()
-        self.tabs.setUsesScrollButtons(True)
+        self.tabs = FlowTabs()          # its tab buttons wrap onto a second row on a narrow screen
         self.test_panel = TestPanel(self)
         self.jog_panel = JogPanel(self)
         self.calibrate_panel = CalibratePanel(self)
@@ -179,11 +178,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self._scroll(self.calibrate_panel), "Calibrate")
         self.tabs.addTab(self._scroll(self.units_panel), "Units")
         self.tabs.addTab(self.console, "Console")
-        self.tabs.addTab(self.firmware_panel, "Firmware")
+        self.tabs.addTab(self._scroll(self.firmware_panel), "Firmware")
         self.tabs.currentChanged.connect(self._tab_changed)
         splitter.addWidget(self.tabs)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
+        splitter.setSizes([3000, 2000])             # 3 : 2 of whatever width the screen has
+        splitter.setChildrenCollapsible(False)      # a stray drag on the touchscreen must not hide a side
+        splitter.setHandleWidth(em(0.6))
+        # Wide enough for every tab's controls, so none of them scrolls sideways.
+        self.tabs.setMinimumWidth(min(self._tabs_min_width(), int(0.6 * screen_size(self)[0])))
         root.addWidget(splitter, 1)
         self.statusBar()
 
@@ -197,9 +201,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _readout(layout, caption: str) -> QtWidgets.QLabel:
         box = QtWidgets.QVBoxLayout()
         cap = QtWidgets.QLabel(caption)
-        cap.setStyleSheet(CAPTION_STYLE)
+        cap.setStyleSheet(caption_style())
         value = QtWidgets.QLabel("—")
-        value.setStyleSheet(READOUT_STYLE)
+        value.setStyleSheet(readout_style())
         box.addWidget(cap)
         box.addWidget(value)
         layout.addLayout(box, 1)
@@ -207,11 +211,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @staticmethod
     def _scroll(widget) -> QtWidgets.QScrollArea:
+        """Scrolls up and down when the screen is too short; never sideways (the tabs are wide enough)."""
         area = QtWidgets.QScrollArea()
         area.setWidgetResizable(True)
         area.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         area.setWidget(widget)
         return area
+
+    def _tabs_min_width(self) -> int:
+        """The widest tab's minimum width, plus room for a vertical scroll bar."""
+        widest = 0
+        for i in range(self.tabs.count()):
+            page = self.tabs.widget(i)
+            inner = page.widget() if isinstance(page, QtWidgets.QScrollArea) else page
+            widest = max(widest, inner.minimumSizeHint().width())
+        bar = self.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent)
+        return widest + bar + em(0.5)
 
     def _tab_changed(self, index: int) -> None:
         if index == self.outputs_index:
@@ -243,7 +259,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._warnings = list(warnings)
         self.banner.setText("   •   ".join(self._warnings))
         critical = any("almost full" in w or "stopped recording" in w for w in self._warnings)
-        self.banner.setStyleSheet(BANNER_CRITICAL_STYLE if critical else BANNER_STYLE)
+        self.banner.setStyleSheet(banner_style(critical))
         self.banner.setVisible(bool(self._warnings))
 
     def _add_warning(self, text: str) -> None:
@@ -911,10 +927,14 @@ class MainWindow(QtWidgets.QMainWindow):
 def run_gui(config: Config, port: str | None = None, sim: bool = False, fullscreen: bool = False) -> int:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     app.setApplicationName("VSBC Tensile Tester")
-    apply_style(app, config.gui.font_pt)
+    font_px = apply_style(app, config.gui.font_pt, config.gui.scale)
+    width, height = screen_size()
+    log.info("screen %d × %d px: text %.1f px", width, height, font_px)
     win = MainWindow(config, port=port, sim=sim, auto_connect=bool(port or sim))
     if fullscreen:
         win.showFullScreen()
+    elif width < 1300 or height < 860:          # 1280 × 800 and the title bar would not fit
+        win.showMaximized()
     else:
         win.resize(1280, 800)
         win.show()

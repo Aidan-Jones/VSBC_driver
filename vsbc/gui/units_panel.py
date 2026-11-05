@@ -25,14 +25,12 @@ class UnitsPanel(Panel):
         force_row = QtWidgets.QVBoxLayout(force_box)
         for i, unit in enumerate(FORCE_UNITS):
             b = QtWidgets.QRadioButton(FORCE_NAMES[unit])
-            b.setMinimumHeight(32)
             self.force_group.addButton(b, i)
             force_row.addWidget(b)
         length_box = QtWidgets.QGroupBox("Travel (position, extension, rates, area)")
         length_row = QtWidgets.QVBoxLayout(length_box)
         for i, unit in enumerate(LENGTH_UNITS):
             b = QtWidgets.QRadioButton(LENGTH_NAMES[unit])
-            b.setMinimumHeight(32)
             self.length_group.addButton(b, i)
             length_row.addWidget(b)
         self.example = QtWidgets.QLabel()

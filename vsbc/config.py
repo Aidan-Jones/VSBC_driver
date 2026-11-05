@@ -62,7 +62,8 @@ class GuiConfig:
     fullscreen: bool = False
     refresh_hz: float = 25.0
     time_window_s: float = 60.0
-    font_pt: int = 11
+    font_pt: float = 11.0            # text size on a 1280 × 800 screen; other screens scale it
+    scale: float = 0.0               # 0 = from the screen size; else a fixed factor on font_pt
 
 
 @dataclass

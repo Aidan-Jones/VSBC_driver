@@ -19,7 +19,7 @@ from vsbc.calibration import (
     LoadFit, LoadPoint, TravelTrial, apply_load_fit, apply_travel, collect_raw, fit_load_calibration,
     mass_to_newtons, save_record, travel_correction,
 )
-from vsbc.gui.common import QtWidgets, QuantitySpin, button, spin
+from vsbc.gui.common import QtWidgets, QuantitySpin, button, em, form_layout, screen_size, spin
 
 AVERAGE_S = 3.0
 
@@ -30,10 +30,15 @@ class _Dialog(QtWidgets.QDialog):
         self.win = win
         self.machine = win.machine
         self.setWindowTitle(title)
-        self.setMinimumWidth(600)
+        width, _height = screen_size(win)
+        self.setMinimumWidth(min(em(40), width - em(2)))
         self._busy = False
 
     def open_dialog(self) -> None:
+        # Never taller or wider than the screen: the lists inside shrink (and scroll) instead.
+        width, height = screen_size(self.win)
+        self.setMaximumSize(width, height)
+        self.adjustSize()
         run = getattr(self, "exec", None) or self.exec_
         run()
 
@@ -256,7 +261,7 @@ class TravelCalibrationDialog(_Dialog):
         self.save_btn = button("3.  Save to machine", self.save)
         close_btn = button("Close", self.reject)
 
-        form = QtWidgets.QFormLayout()
+        form = form_layout()
         form.addRow("Distance", self.distance)
         form.addRow("Rate", self.rate)
         moves = QtWidgets.QHBoxLayout()

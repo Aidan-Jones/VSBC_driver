@@ -262,7 +262,7 @@ Tabs on the right:
 | **Console** | Raw serial terminal (like the Serial Monitor) and a log of events. |
 | **Firmware** | Shows the firmware version; compiles and uploads the firmware (arduino-cli). |
 
-On a narrow screen the right-hand tabs scroll (the arrows at the end of the tab bar).
+The GUI sizes itself for the screen it opens on. Text, buttons, readouts and plot labels scale with the screen: 800 × 480 and 1024 × 600 touchscreens get 13 px text (the smallest size that is still easy to read), a 1280 × 800 screen gets `font_pt` (11 pt), and larger or high-resolution screens get proportionally bigger text. Sizes are in pixels, so a screen that reports a wrong physical size (common on HDMI touchscreens) does not make the text tiny or huge. On a narrow screen, button rows and the tab buttons wrap onto a second row instead of scrolling sideways. Only a tab taller than the screen scrolls, and only up and down. A window smaller than 1280 × 800 opens maximised. If the text is still too small or too large, set `scale` under `[gui]` in `config.toml`. It replaces the automatic factor: `scale = 1.2` gives 1.2 × `font_pt` on any screen. The log records the screen size and text size the GUI chose.
 
 ### Position reference
 
@@ -505,7 +505,7 @@ The same jobs in `vsbc_firmware`:
 - the load-cell capacity, local gravity and the HX711's sample rate (`rate_hz`: 10 as shipped, 80 with the RATE jumper cut);
 - default test settings;
 - the watchdog timeout;
-- GUI refresh rate, font size and full screen;
+- GUI refresh rate, text size (`font_pt`, and `scale` to override the automatic screen scaling) and full screen;
 - `[units]`: the default display units (the Units tab overrides them and remembers its choice);
 - `[storage]`: the free-space warning levels;
 - `[camera]`: the camera folder and environment, recording with each test, how frames are saved (`save_mode`), the load-cell delay, and what runs after the test.

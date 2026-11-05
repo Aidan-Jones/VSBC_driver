@@ -13,7 +13,7 @@ from pathlib import Path
 
 from vsbc.camera.postprocess import Options
 from vsbc.camera.scripts import check_scripts, literal_settings
-from vsbc.gui.common import QtCore, QtGui, QtWidgets, button, spin
+from vsbc.gui.common import QtCore, QtGui, QtWidgets, button, flow, form_layout, narrow_combo, spin
 from vsbc.gui.panels import Panel
 from vsbc.storage import disk_status, human_size
 
@@ -40,13 +40,6 @@ def _check(text: str, checked: bool, tip: str = "") -> QtWidgets.QCheckBox:
     if tip:
         box.setToolTip(tip)
     return box
-
-
-def narrow_combo(combo: QtWidgets.QComboBox) -> QtWidgets.QComboBox:
-    """Let a combo box with long items shrink with the panel (instead of widening it)."""
-    combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-    combo.setMinimumContentsLength(12)
-    return combo
 
 
 class CameraPanel(Panel):
@@ -85,7 +78,7 @@ class CameraPanel(Panel):
         self.settle.setToolTip("Wait before the reference frame (hands off the machine)")
         self.estimate = QtWidgets.QLabel()
         self.estimate.setWordWrap(True)
-        form = QtWidgets.QFormLayout(rec_box)
+        form = form_layout(rec_box)
         form.addRow(self.record_with_test)
         form.addRow("Save", self.save_mode)
         form.addRow("1:1 frames", self.divisor)
@@ -104,7 +97,7 @@ class CameraPanel(Panel):
         sync_note = QtWidgets.QLabel("Frames and data.csv share data.csv's clock (time_s). The load-cell delay "
                                      "shifts the load when pairing it with frames.")
         sync_note.setWordWrap(True)
-        sform = QtWidgets.QFormLayout(sync_box)
+        sform = form_layout(sync_box)
         sform.addRow("Load-cell delay", self.load_delay)
         sform.addRow(sync_note)
 
@@ -125,7 +118,7 @@ class CameraPanel(Panel):
         self.max_disp = _ispin(1, 1000, 64)
         self.dic_estimate = QtWidgets.QLabel()
         self.dic_estimate.setWordWrap(True)
-        dform = QtWidgets.QFormLayout(dic_box)
+        dform = form_layout(dic_box)
         dform.addRow(self.live_dic)
         dform.addRow("Whole test", self.overview_every)
         dform.addRow("Full-rate windows", self.crack_every)
@@ -151,15 +144,12 @@ class CameraPanel(Panel):
         self.cancel_btn = button("Cancel", self.cancel)
         self.post_status = QtWidgets.QLabel()
         self.post_status.setWordWrap(True)
-        pform = QtWidgets.QFormLayout(post_box)
+        pform = form_layout(post_box)
         pform.addRow(self.make_video)
         pform.addRow("Video frame rate", self.video_fps)
         for box in (self.run_dic, self.run_strain, self.strain_animation, self.crack_image, self.crack_opening):
             pform.addRow(box)
-        grid = QtWidgets.QGridLayout()
-        for i, b in enumerate((self.process_last_btn, self.process_folder_btn, self.pause_btn, self.cancel_btn)):
-            grid.addWidget(b, i // 2, i % 2)
-        pform.addRow(grid)
+        pform.addRow(flow(self.process_last_btn, self.process_folder_btn, self.pause_btn, self.cancel_btn))
         pform.addRow(self.post_status)
 
         # --- scripts ---
@@ -173,10 +163,7 @@ class CameraPanel(Panel):
         self.check_btn = button("Check camera, disk, pyvale...", self.run_check)
         slayout = QtWidgets.QVBoxLayout(scripts_box)
         slayout.addWidget(self.scripts_info)
-        srow = QtWidgets.QHBoxLayout()
-        srow.addWidget(self.reload_btn)
-        srow.addWidget(self.open_scripts_btn)
-        slayout.addLayout(srow)
+        slayout.addLayout(flow(self.reload_btn, self.open_scripts_btn))
         slayout.addWidget(self.check_btn)
 
         layout = QtWidgets.QVBoxLayout(self)

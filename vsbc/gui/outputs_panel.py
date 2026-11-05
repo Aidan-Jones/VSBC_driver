@@ -12,8 +12,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from vsbc.gui.camera_panel import narrow_combo
-from vsbc.gui.common import QtCore, QtGui, QtWidgets, button
+from vsbc.gui.common import QtCore, QtGui, QtWidgets, button, em, flow, narrow_combo
 from vsbc.gui.panels import Panel
 from vsbc.storage import (
     copy_outputs, copy_size, delete_entry, delete_images, delete_old_logs, eject, human_size, list_outputs,
@@ -62,7 +61,7 @@ class OutputsPanel(Panel):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setMinimumHeight(220)
+        self.table.setMinimumHeight(em(11))
         self.table.setMinimumWidth(100)        # scrolls sideways instead of widening the tab
         self.table.itemSelectionChanged.connect(self._selection_changed)
 
@@ -72,16 +71,12 @@ class OutputsPanel(Panel):
         self.delete_images_btn.setToolTip("Frees most of the space: keeps data.csv, the video, DIC results and plots")
         self.delete_btn = button("Delete...", self.delete_selected)
         self.logs_btn = button("Delete logs older than 30 days", self.delete_logs)
-        actions = QtWidgets.QGridLayout()
-        actions.addWidget(self.refresh_btn, 0, 0)
-        actions.addWidget(self.open_btn, 0, 1)
-        actions.addWidget(self.delete_images_btn, 1, 0)
-        actions.addWidget(self.delete_btn, 1, 1)
+        actions = flow(self.refresh_btn, self.open_btn, self.delete_images_btn, self.delete_btn)
 
         usb_box = QtWidgets.QGroupBox("Copy to a USB drive")
         self.drives = narrow_combo(QtWidgets.QComboBox())
         self.find_btn = button("⟳", self.find_drives)
-        self.find_btn.setFixedWidth(48)
+        self.find_btn.setFixedWidth(em(3))
         self.find_btn.setToolTip("Look for USB drives again")
         self.choose_btn = button("Other folder...", self.choose_folder)
         self.include_images = QtWidgets.QCheckBox("Include the raw camera images")
@@ -101,17 +96,15 @@ class OutputsPanel(Panel):
         drive_row.addWidget(self.choose_btn)
         u.addLayout(drive_row)
         u.addWidget(self.include_images)
-        copy_row = QtWidgets.QHBoxLayout()
-        copy_row.addWidget(self.copy_btn, 1)
-        copy_row.addWidget(self.cancel_copy_btn)
-        copy_row.addWidget(self.eject_btn)
-        u.addLayout(copy_row)
+        u.addLayout(flow(self.copy_btn, self.cancel_copy_btn, self.eject_btn))
         u.addWidget(self.copy_progress)
         u.addWidget(self.copy_text)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(storage_box)
-        layout.addWidget(QtWidgets.QLabel("Tests and camera recordings on this computer (newest first):"))
+        listing = QtWidgets.QLabel("Tests and camera recordings on this computer (newest first):")
+        listing.setWordWrap(True)
+        layout.addWidget(listing)
         layout.addWidget(self.table, 1)
         layout.addLayout(actions)
         layout.addWidget(usb_box)

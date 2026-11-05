@@ -8,7 +8,7 @@ import logging
 from dataclasses import asdict
 
 from vsbc.calibration import latest_record, save_record
-from vsbc.gui.common import QtWidgets, button, fmt
+from vsbc.gui.common import QtWidgets, button, fmt, form_layout
 from vsbc.gui.panels import Panel
 from vsbc.units import N_PER, Units
 
@@ -33,7 +33,7 @@ class CalibratePanel(Panel):
         self.values: dict[str, QtWidgets.QLabel] = {}
         self._settings: dict = {}
         box = QtWidgets.QGroupBox("Stored on the Mega (EEPROM)")
-        form = QtWidgets.QFormLayout(box)
+        form = form_layout(box)
         for key, label, _digits, _unit in self.FIELDS:
             self.values[key] = QtWidgets.QLabel("—")
             form.addRow(label, self.values[key])

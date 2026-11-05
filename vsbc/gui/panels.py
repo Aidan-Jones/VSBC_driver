@@ -7,12 +7,11 @@ from pathlib import Path
 
 from vsbc import FIRMWARE_VERSION, PROTOCOL_VERSION
 from vsbc.gui.common import (
-    HIGH_SPEED_STYLE, START_STYLE, QShortcut, QtCore, QtGui, QtWidgets, QuantitySpin, button, spin,
+    QShortcut, QtCore, QtGui, QtWidgets, QuantitySpin, button, em, flow, form_layout, high_speed_style, mono_font,
+    spin, start_style,
 )
 from vsbc.procedures import PullTestSpec
 from vsbc.units import Units
-
-MONO = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.SystemFont.FixedFont)
 
 
 class Panel(QtWidgets.QWidget):
@@ -63,7 +62,7 @@ class TestPanel(Panel):
         self.ret = QtWidgets.QCheckBox("Return to the start position afterwards")
         self.ret.setChecked(d.return_after)
 
-        form = QtWidgets.QFormLayout()
+        form = form_layout()
         form.addRow("Specimen ID", self.specimen)
         form.addRow("Rate", self.rate)
         form.addRow("Max extension", self.max_ext)
@@ -77,17 +76,17 @@ class TestPanel(Panel):
         form.addRow(self.tare)
         form.addRow(self.ret)
 
-        self.start_btn = button("▶  Start test", win.start_test, START_STYLE, 56)
+        self.start_btn = button("▶  Start test", win.start_test, start_style(), em(3.4))
         self.high_speed_btn = button("⚡  High-speed camera: save every frame", self.toggle_high_speed,
-                                     HIGH_SPEED_STYLE, 48)
+                                     high_speed_style(), em(3))
         self.high_speed_btn.setCheckable(True)
         self.high_speed_btn.setToolTip(
             "Keeps the last seconds held in RAM and saves every camera frame from now until you turn it off "
             "or the test ends. The camera and the test stop together.")
         self.result = QtWidgets.QPlainTextEdit()
         self.result.setReadOnly(True)
-        self.result.setFont(MONO)
-        self.result.setMinimumHeight(170)
+        self.result.setFont(mono_font())
+        self.result.setMinimumHeight(em(6))       # grows into the spare height (stretch 1 below)
         self.result.setPlaceholderText("Results appear here when the test ends.")
         self.open_btn = button("Open results folder", self.open_folder)
         self.open_btn.setEnabled(False)
@@ -173,7 +172,7 @@ class JogPanel(Panel):
         u = win.units
         self.rate = QuantitySpin("rate_s", 0.01, 10.0, win.config.test.jog_rate_mm_s, u, 2, 0.5)
         self.step_group = QtWidgets.QButtonGroup(self)
-        steps = QtWidgets.QHBoxLayout()
+        steps = flow()
         for i in range(len(self.STEPS)):
             b = QtWidgets.QPushButton()
             b.setCheckable(True)
@@ -182,8 +181,8 @@ class JogPanel(Panel):
             steps.addWidget(b)
         self._label_steps(u)
 
-        self.up = button("▲   +  (tension)", lambda: self.jog(+1), min_height=64)
-        self.down = button("▼   −  (compression)", lambda: self.jog(-1), min_height=64)
+        self.up = button("▲   +  (tension)", lambda: self.jog(+1), min_height=em(3.6))
+        self.down = button("▼   −  (compression)", lambda: self.jog(-1), min_height=em(3.6))
         self.goto_value = QuantitySpin("length", -10000.0, 10000.0, 0.0, u, 3, 1.0)
         self.goto_btn = button("Go to", self.go_to)
         self.home_btn = button("Home (go to 0)", self.home)
@@ -195,15 +194,13 @@ class JogPanel(Panel):
         self.motors.addItems(["Both motors (AB)", "Motor A only (service)", "Motor B only (service)"])
         self.motors.currentIndexChanged.connect(self.select_motors)
 
-        form = QtWidgets.QFormLayout()
+        form = form_layout()
         form.addRow("Jog rate", self.rate)
         form.addRow("Step", steps)
         goto_row = QtWidgets.QHBoxLayout()
         goto_row.addWidget(self.goto_value, 1)
         goto_row.addWidget(self.goto_btn)
-        zero_row = QtWidgets.QHBoxLayout()
-        zero_row.addWidget(self.zero_btn)
-        zero_row.addWidget(self.zero_value, 1)
+        zero_row = flow(self.zero_btn, self.zero_value)
 
         ref_box = QtWidgets.QGroupBox("Position reference")
         ref = QtWidgets.QVBoxLayout(ref_box)
@@ -327,9 +324,8 @@ class ConsolePanel(Panel):
         super().__init__(win)
         self.text = QtWidgets.QPlainTextEdit()
         self.text.setReadOnly(True)
-        self.text.setFont(MONO)
+        self.text.setFont(mono_font())
         self.text.setMaximumBlockCount(3000)
-        self.text.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap)
         self.show_data = QtWidgets.QCheckBox("Show data lines (D ...)")
         self.entry = QtWidgets.QLineEdit()
         self.entry.setPlaceholderText("Command, e.g. STATUS, GET or ?  (any command stops a running move)")
@@ -374,7 +370,7 @@ class FirmwarePanel(Panel):
         self.upload_btn = button("Compile + upload to the Mega", self.upload)
         self.log = QtWidgets.QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setFont(MONO)
+        self.log.setFont(mono_font())
         self.log.setMaximumBlockCount(2000)
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(self.info)

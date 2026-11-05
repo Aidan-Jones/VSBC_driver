@@ -44,7 +44,8 @@ jog_rate_mm_s = 2.0
 fullscreen = false
 refresh_hz = 25
 time_window_s = 60
-font_pt = 11
+font_pt = 11                 # text size on a 1280 x 800 screen; other screens scale it (13 px at least)
+scale = 0                    # 0 = from the screen size; else a fixed factor on font_pt (1.2 = 13.2 pt on any screen)
 
 [units]                       # what the GUI shows; the Units tab changes it (and remembers the choice)
 force = "N"                  # "N" or "lbf"

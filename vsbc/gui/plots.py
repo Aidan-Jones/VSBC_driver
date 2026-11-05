@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from collections import deque
 
-from vsbc.gui.common import GrowingArray, QtWidgets, np, pg
+from vsbc.gui.common import FlowTabs, GrowingArray, QtGui, em, np, pg
 from vsbc.protocol import Sample
 from vsbc.units import Units
 
 
-class LivePlots(QtWidgets.QTabWidget):
+class LivePlots(FlowTabs):
     def __init__(self, window_s: float = 60.0, parent=None, units: Units | None = None):
         super().__init__(parent)
         pg.setConfigOptions(antialias=True, background="w", foreground="k")
@@ -25,7 +25,7 @@ class LivePlots(QtWidgets.QTabWidget):
         self.test_plot.setDownsampling(auto=True, mode="peak")
         self.test_plot.setClipToView(True)
         self.test_curve = self.test_plot.plot(pen=pg.mkPen("#1f5fa8", width=2))
-        self.peak_marker = self.test_plot.plot(pen=None, symbol="o", symbolBrush="#c0392b", symbolSize=10)
+        self.peak_marker = self.test_plot.plot(pen=None, symbol="o", symbolBrush="#c0392b", symbolSize=em(0.75))
         self.addTab(self.test_plot, "Load – extension")
 
         # Load and position vs time (rolling window)
@@ -33,7 +33,6 @@ class LivePlots(QtWidgets.QTabWidget):
         self.load_plot = self.time_widget.addPlot(row=0, col=0)
         self.load_plot.showGrid(x=True, y=True, alpha=0.3)
         self.pos_plot = self.time_widget.addPlot(row=1, col=0)
-        self.pos_plot.setLabel("bottom", "Time", units="s")
         self.pos_plot.showGrid(x=True, y=True, alpha=0.3)
         self.pos_plot.setXLink(self.load_plot)
         self.load_curve = self.load_plot.plot(pen=pg.mkPen("#c0392b", width=2))
@@ -50,7 +49,18 @@ class LivePlots(QtWidgets.QTabWidget):
         self._test_load = GrowingArray()
         self._peak: tuple[float, float] | None = None
         self._dirty = False
+        # Axis numbers and labels in the GUI's text size (pyqtgraph's own default is small and fixed).
+        tick_font = QtGui.QFont()
+        tick_font.setPixelSize(max(12, em(0.9)))
+        for plot in (self.test_plot.getPlotItem(), self.load_plot, self.pos_plot):
+            for side in ("left", "bottom"):
+                plot.getAxis(side).setStyle(tickFont=tick_font)
+        self.pos_plot.setLabel("bottom", "Time", units="s", **self._label_style())
         self.apply_units(self.units)
+
+    @staticmethod
+    def _label_style() -> dict:
+        return {"font-size": f"{em(0.95)}px"}
 
     def apply_units(self, units: Units) -> None:
         """Relabel the axes and redraw in the new units. The unit goes in the label, without
@@ -62,7 +72,7 @@ class LivePlots(QtWidgets.QTabWidget):
                                        (self.pos_plot, "left", "Position", units.length)):
             axis = plot.getAxis(side)
             axis.enableAutoSIPrefix(False)
-            plot.setLabel(side, f"{text} ({unit})")
+            plot.setLabel(side, f"{text} ({unit})", **self._label_style())
         if self._peak is not None:
             self.mark_peak(*self._peak)
         self._dirty = True
