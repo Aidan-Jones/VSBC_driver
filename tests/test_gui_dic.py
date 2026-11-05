@@ -158,3 +158,45 @@ def test_cancel_run_leaves_other_tests_alone(config, tmp_path):
     assert pp.running_for(a) and pp.running_for(b)
     pp.cancel_run(a)
     assert [j.title for j in pp.queue] == ["b: DIC"] and not pp.running_for(a)
+
+
+def test_draw_this_tests_roi_in_a_pop_up(app, window):
+    win = window
+    run = win.test_folder / "camera"
+    (run / "roi.npz").unlink()
+    view = _open(app, win)
+    pane = view.run_pane
+    assert _wait(app, lambda: pane.draw_roi_btn.isEnabled(), 5)
+    assert pane.draw_roi_btn.text() == "Draw ROI on a frame..."
+    assert any(c.level == "error" and "Draw ROI" in c.text for c in pane.checks)
+    pane.redo.setChecked(False)
+    pane.draw_roi_btn.click()
+    dialog = pane.roi_dialog
+    assert dialog is not None and dialog.isVisible() and dialog.shape == SHAPE
+    assert dialog.frames[0] == 0 and "DIC reference" in dialog.frame_label.text()
+    dialog._to_break()                                            # scrub to the break and back
+    assert dialog.slider.value() > 0
+    dialog.slider.setValue(0)
+    dialog.set_box(6, 4, 58, 36)
+    dialog.place("seed", 30, 20)
+    dialog.place("notch", 8, 20)
+    assert dialog.save()
+    roi = load_roi(run / "roi.npz")
+    assert roi is not None and roi.shape == SHAPE and roi.seed == (30, 20) and roi.notch == (8, 20)
+    assert roi.mask[20, 30] and not roi.mask[1, 1]
+    assert (run / "roi_snapshot.tif").is_file()
+    assert win.roi is None and not win.roi_file.exists()          # the Camera tab's ROI is left alone
+    assert pane.redo.isChecked()                                  # DIC results were made without this ROI
+    assert _wait(app, lambda: view.data is not None and view.data.res.roi is not None
+                 and pane.draw_roi_btn.text() == "Edit this test's ROI...", 5)
+    assert not any(c.level == "error" and "ROI" in c.text for c in pane.checks)
+    assert any(c.text.startswith("Notch tip at x 8") for c in pane.checks)
+
+    # Editing it again starts from this test's ROI; a seed outside the ROI is moved inside.
+    pane.draw_roi_btn.click()
+    dialog = pane.roi_dialog
+    assert dialog.start.currentData() == "test" and dialog.seed == (30, 20)
+    dialog.set_box(40, 4, 60, 36)
+    assert dialog.save()
+    roi = load_roi(run / "roi.npz")
+    assert roi.mask[roi.seed[1], roi.seed[0]] and roi.seed[0] >= 40

@@ -64,6 +64,7 @@ On the first real Pi run, check:
   - The estimated crack frame is the largest frame-to-frame change inside the ROI. This is in `vsbc/camera/results.py`; it reads only frames.csv, data.csv and the TIFFs, so it needs nothing from this folder.
 - **DIC tab** (left, after Results):
   - Run DIC, strain and the crack trackers on any test, after a checklist (ROI, notch, scripts, pyvale in the camera environment, disk). It uses the same jobs as after a test.
+  - **Draw ROI on a frame…** draws a test's own `roi.npz` (ROI, seed, notch tip, crack direction) on its frame 0, in a pop-up, for old trials. The Camera tab's ROI is not changed.
   - View pyvale's displacement and strain over the frames.
   - Mark crack tips by hand. They are written to `crack_tip_manual.csv` in `crack_tip_viewer.py`'s format, so either tool can add to them.
 - **Files**, per test:

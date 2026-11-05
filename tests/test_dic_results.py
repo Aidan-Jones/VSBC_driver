@@ -140,7 +140,7 @@ def test_validation_roi_missing_offers_the_current_roi(tmp_path):
     (test / "camera" / "roi.npz").unlink()
     res = load_results(test)
     checks = dr.validate(res, opts(), env=ENV_OK)
-    assert any(c.level == "error" and "Edit ROI" in c.text for c in checks)
+    assert any(c.level == "error" and "Draw ROI" in c.text for c in checks)
     current = Roi(rect_mask(SHAPE, 2, 2, 60, 38), seed=(30, 20), notch=None)
     res.settings.update(height=SHAPE[0], width=SHAPE[1])
     checks = dr.validate(res, opts(), env=ENV_OK, current_roi=current)

@@ -781,12 +781,16 @@ class RunPane(QtWidgets.QWidget):
         self.check_text = QtWidgets.QLabel()
         self.check_text.setWordWrap(True)
         self.check_text.setTextFormat(Qt.TextFormat.RichText)
-        self.fix_btn = button("Use the current ROI", self.use_current_roi)
+        self.fix_btn = button("Use the Camera tab's ROI", self.use_current_roi)
         self.fix_btn.hide()
+        self.draw_roi_btn = button("Draw ROI on a frame...", self.draw_roi)
+        self.draw_roi_btn.setToolTip("Draw this test's own ROI, seed and notch tip on one of its frames. "
+                                     "The Camera tab's ROI is not changed.")
+        self.roi_dialog = None
         self.recheck_btn = button("Check again", self.owner_recheck)
         cl = QtWidgets.QVBoxLayout(check_box)
         cl.addWidget(self.check_text)
-        cl.addLayout(flow(self.fix_btn, self.recheck_btn))
+        cl.addLayout(flow(self.draw_roi_btn, self.fix_btn, self.recheck_btn))
 
         self.run_btn = button("▶  Run", self.run)
         self.run_btn.setMinimumHeight(em(2.8))
@@ -899,6 +903,33 @@ class RunPane(QtWidgets.QWidget):
         busy = run is not None and self.owner.win.postprocess.running_for(run)
         self.run_btn.setEnabled(self.owner.available and bool(self.checks) and dr.can_run(self.checks))
         self.cancel_btn.setEnabled(busy)
+        # Not while DIC runs on this test: the job reads the ROI as it starts.
+        self.draw_roi_btn.setEnabled(self.owner.available and data is not None and data.res.has_images and not busy)
+        if data is not None and data.res.roi is not None:
+            self.draw_roi_btn.setText("Edit this test's ROI...")
+        else:
+            self.draw_roi_btn.setText("Draw ROI on a frame...")
+
+    def draw_roi(self) -> None:
+        """This test's own ROI, drawn on its frames in a pop-up (the Camera tab's ROI is left alone)."""
+        from vsbc.gui.roi_dialog import RoiDialog
+
+        data = self.owner.data
+        if data is None or not data.res.has_images:
+            return
+        had_dic = bool(data.dic)
+
+        def saved(_roi):
+            self.owner.win.status("Saved this test's ROI")
+            if had_dic:
+                self.redo.setChecked(True)      # the old results were made with the old ROI
+            self.owner.reload()
+
+        self.roi_dialog = RoiDialog(self.owner.win, data, on_saved=saved)
+        if self.owner.win.interactive:
+            self.roi_dialog.open_dialog()
+        else:
+            self.roi_dialog.show()              # tests drive it
 
     def use_current_roi(self) -> None:
         data = self.owner.data

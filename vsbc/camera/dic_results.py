@@ -292,9 +292,10 @@ def validate(res: RunResults, options, *, current_roi: Roi | None = None, env: t
     if problem is None:
         add(Check("ok", "ROI and seed point OK."))
     elif current_fits:
-        add(Check("warn", f"{problem}. The current ROI (Camera tab) fits these frames: use it?", "use_current_roi"))
+        add(Check("warn", f"{problem}. The Camera tab's ROI fits these frames: use it, or draw one for this test.",
+                  "use_current_roi"))
     elif options.run_dic:
-        add(Check("error", f"{problem}. Draw one: Camera tab > Edit ROI, then come back."))
+        add(Check("error", f"{problem}. Draw one for this test: Draw ROI on a frame... below."))
     else:
         add(Check("warn", f"{problem}."))
     # 3. notch
@@ -303,7 +304,7 @@ def validate(res: RunResults, options, *, current_roi: Roi | None = None, env: t
     if roi_for_notch is not None and roi_for_notch.notch:
         add(Check("ok", f"Notch tip at x {roi_for_notch.notch[0]}, y {roi_for_notch.notch[1]}."))
     elif trackers:
-        add(Check("warn", "No notch tip: the crack trackers will be skipped (Camera tab > Edit ROI > Place notch tip)."))
+        add(Check("warn", "No notch tip: the crack trackers will be skipped (Draw ROI on a frame... > Place notch tip)."))
     # 4. sync
     if synced(res.run):
         add(Check("ok", "Frames are on data.csv's clock."))

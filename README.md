@@ -388,7 +388,7 @@ The **DIC** tab (left side, after Results) runs DIC on a test you choose and sho
   - **What to run.** DIC, strain + plots, and the two crack trackers. The parameters (whole-test and full-rate frame steps, subset size and step, max displacement) start from the Camera panel's values. **Redo** analyses again frames that already have results.
   - **Checks.** A checklist runs before anything can start:
     - the camera images and reference frame 0 are there;
-    - the ROI and seed are usable, with **Use the current ROI** when the recording has none but the Camera tab's ROI fits;
+    - the ROI and seed are usable;
     - a notch tip is set (the trackers need it);
     - the frames are synced;
     - how many frames DIC will analyse, and how many already have results;
@@ -399,6 +399,12 @@ The **DIC** tab (left side, after Results) runs DIC on a test you choose and sho
     - DIC is not already running for this test.
 
     **Run** is enabled only when nothing is marked ✗.
+  - **This test's ROI.** **Draw ROI on a frame…** (or **Edit this test's ROI…**) opens a pop-up on the test's own frames, for old trials recorded without an ROI, or with the wrong one.
+    - The ROI belongs to the trial (`camera/roi.npz`): saving it never changes the Camera tab's ROI.
+    - It opens on frame 0, the DIC reference, so draw on that one; **Near the break** and the slider check that it still covers the specimen there.
+    - Draw a rectangle or polygon, place the seed and the notch tip, and set the crack direction. You can start from this test's ROI, the Camera tab's ROI or the whole frame.
+    - A seed outside the ROI is moved to its centre. When the test already has DIC results, saving asks first and ticks **Redo**, since those results were made with the old ROI.
+    - **Use the Camera tab's ROI** copies that one instead, when it fits the frames.
   - **Running.** The jobs are the same ones as after a test: low priority, one at a time, paused while a test records. The progress shows here. **Cancel** stops only this test's jobs. When they finish, the other sub-tabs reload.
 - **DIC**: the displacement over the frame: v (vertical), u (horizontal) or |d|. A colour bar shows the 2nd–98th percentile over the test, or over this frame with **Colours per frame**. Below the frame: the mean displacement against time. **Full-rate window only** limits it to the break.
 - **Strain**: the same for pyvale's strain: eps_yy (default), eps_xx, eps_xy. Below the frame: the mean strain (µε) and the load against time.
