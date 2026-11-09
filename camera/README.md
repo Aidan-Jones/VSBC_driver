@@ -134,6 +134,7 @@ The load itself lags the image by the HX711's filter (roughly 2 conversion perio
 | `SAVE_FPS` | 10 | standalone: frames/s saved continuously (~8 MB/s at 400 rows, fine for a microSD). The script derives its save step from the camera's frame rate |
 | `SAVE_EVERY` | 9 | GUI only: the "every k-th frame" save mode (the GUI saves 1 frame per load sample by default) |
 | `BUFFER_SECONDS` | 2 | every frame of the last 2 s held in RAM |
+| `BREAK_SECONDS` | 0.5 | standalone: on `q`, only the last 0.5 s of the buffer is saved at full rate. The GUI uses `[camera] break_seconds` (Camera panel **Before the break**, 0.5 s) at the detected break |
 | `POST_SECONDS` | 1 | standalone: after `c`, every frame for 1 more s. The GUI stops the camera with the test instead |
 | `OVERVIEW_DIC_FPS` | 2 | standalone: DIC rate over the loading phase (always a multiple of the save step) |
 | `DIC_STEP` | 27 | GUI only: overview DIC on every 27/9 = 3rd saved frame |

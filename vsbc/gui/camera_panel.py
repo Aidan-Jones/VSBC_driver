@@ -71,9 +71,14 @@ class CameraPanel(Panel):
         self.buffer = spin(0.1, 30.0, 2.0, 1, 0.5, "s")
         self.buffer.setToolTip("Every frame of the last this-many seconds is held in RAM (BUFFER_SECONDS), so the "
                                "frames just before the break, or before you press High speed, are kept.")
-        self.dump_on_break = _check("Save the RAM buffer at the break", c.dump_on_break,
-                                    "When the Mega detects the break, every frame of the RAM buffer is saved (full "
-                                    "rate), so the frames just before the break are kept.")
+        self.dump_on_break = _check("Save full-rate frames at the break", c.dump_on_break,
+                                    "When the Mega detects the break, every frame of the last few seconds (below) "
+                                    "is saved at the full camera rate, so the frames just before the break are kept.")
+        self.break_s = spin(0.05, 30.0, c.break_seconds, 2, 0.1, "s")
+        self.break_s.setToolTip("How many seconds before the break are saved at full rate. The RAM buffer keeps at "
+                                "least this much.")
+        self.dump_on_break.toggled.connect(self.break_s.setEnabled)
+        self.break_s.setEnabled(self.dump_on_break.isChecked())
         self.settle = spin(0.0, 60.0, 5.0, 1, 1.0, "s")
         self.settle.setToolTip("Wait before the reference frame (hands off the machine)")
         self.estimate = QtWidgets.QLabel()
@@ -85,6 +90,7 @@ class CameraPanel(Panel):
         form.addRow("Nth frame", self.every)
         form.addRow("RAM buffer", self.buffer)
         form.addRow(self.dump_on_break)
+        form.addRow("Before the break", self.break_s)
         form.addRow("Settle before frame 0", self.settle)
         form.addRow(self.estimate)
         self.save_mode.currentIndexChanged.connect(self._mode_changed)
@@ -232,8 +238,9 @@ class CameraPanel(Panel):
                     "max_displacement": self.max_disp.value()}
         return {"mode": self.save_mode.currentData(), "every": self.every.value(), "divisor": self.divisor.value(),
                 "buffer_s": self.buffer.value(), "settle_s": self.settle.value(),
-                "dump_on_break": self.dump_on_break.isChecked(), "load_delay_ms": self.load_delay.value(),
-                "live_dic": live, "units": self.win.units.to_dict(), "name": name}
+                "dump_on_break": self.dump_on_break.isChecked(), "break_s": self.break_s.value(),
+                "load_delay_ms": self.load_delay.value(), "live_dic": live, "units": self.win.units.to_dict(),
+                "name": name}
 
     def post_options(self) -> Options:
         return Options(run_dic=self.run_dic.isChecked(), run_strain=self.run_strain.isChecked(),
@@ -255,11 +262,12 @@ class CameraPanel(Panel):
         mode = self.save_mode.currentData()
         saved_fps = {"match": sps / self.divisor.value(), "every": fps / self.every.value(), "all": fps}[mode]
         return {"frame_bytes": frame, "fps": fps, "sps": sps, "saved_fps": saved_fps,
-                "ring_bytes": self.buffer.value() * fps * frame, "full_rate_mb_s": fps * frame / 1e6}
+                "ring_bytes": max(self.buffer.value(), self.break_s.value()) * fps * frame,
+                "break_bytes": self.break_s.value() * fps * frame, "full_rate_mb_s": fps * frame / 1e6}
 
     def test_bytes(self, duration_s: float) -> float:
         r = self.rates()
-        dump = r["ring_bytes"] if self.dump_on_break.isChecked() else 0.0
+        dump = r["break_bytes"] if self.dump_on_break.isChecked() else 0.0
         return r["saved_fps"] * duration_s * r["frame_bytes"] + dump
 
     def _test_duration_s(self) -> float:
@@ -377,6 +385,7 @@ class CameraPanel(Panel):
         for w in (self.save_mode, self.divisor, self.every, self.buffer, self.settle, self.live_dic,
                   self.dump_on_break, self.load_delay, self.reload_btn, self.check_btn):
             w.setEnabled(not recording)
+        self.break_s.setEnabled(not recording and self.dump_on_break.isChecked())
         if not recording:
             self._mode_changed()
         pp = self.win.postprocess

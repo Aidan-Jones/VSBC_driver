@@ -112,7 +112,7 @@ def test_without_full_rate_frames_it_names_the_frames_either_side(tmp_path):
     crack = res.crack
     assert crack.source == "break"
     assert crack.n_frames == 1                                    # only the frame of the next load sample
-    assert not crack.full_rate and "Save the RAM buffer at the break" in crack.note
+    assert not crack.full_rate and "Save full-rate frames at the break" in crack.note
     assert estimate_crack_frame(res) is None
 
 

@@ -16,7 +16,8 @@ from vsbc.procedures import PullTestRunner, PullTestSpec
 from vsbc.sim import Specimen
 
 FRAME_PERIOD_MS = 10.0              # the simulated camera runs at 100 fps
-OPTIONS = dict(mode="match", divisor=1, buffer_s=0.5, settle_s=0.2, dump_on_break=True, load_delay_ms=0.0)
+OPTIONS = dict(mode="match", divisor=1, buffer_s=1.0, break_s=0.3, settle_s=0.2, dump_on_break=True,
+               load_delay_ms=0.0)
 ROI = Roi(rect_mask((160, 640), 20, 20, 620, 140), seed=(320, 80), notch=(25, 80))
 
 
@@ -80,8 +81,11 @@ def test_pull_test_is_recorded_one_frame_per_sample(machine, config, camera):
     assert len(matched) >= 0.9 * len({s["t_ms"] for s in samples})
 
     settings = json.loads((cam_dir / "capture_settings.json").read_text())
-    assert len(settings["full_rate_windows"]) == 1           # the RAM buffer, saved at the break
+    assert len(settings["full_rate_windows"]) == 1           # the last break_s of the RAM buffer
+    assert settings["break_seconds"] == 0.3
     start, end = settings["full_rate_windows"][0]
+    # 0.3 s at 100 fps, not the whole 1 s ring (the simulated camera's timing is loose on Windows)
+    assert 15 <= end - start + 1 <= 45
     window = [f for f in frames if start <= int(f["frame_index"]) <= end]
     assert all(f["saved"] == "1" and f["load_method"] in ("latest", "") for f in window)
     assert (cam_dir / "roi.npz").is_file()

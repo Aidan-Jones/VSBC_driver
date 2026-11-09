@@ -5,6 +5,7 @@
     python -m vsbc.camera.jobs script   --run RUN --camera-dir DIR --name pyvale_dic_run.py --set KEY=JSON ...
     python -m vsbc.camera.jobs annotate --run RUN
     python -m vsbc.camera.jobs video    --run RUN [--test TEST] [--fps 30]
+    python -m vsbc.camera.jobs package  --folder TEST_OR_RUN --output-dir DIR
     python -m vsbc.camera.jobs check    --camera-dir DIR --output-dir DIR [--sim]
 
 RUN is a recording folder (a test's camera/ folder). Progress goes to
@@ -343,6 +344,19 @@ def job_video(args) -> None:
     status.done(f"Video: {out.name}, {times.size} frames at {fps:.2f} fps (playback time = data.csv time_s)")
 
 
+# --------------------------------------------------------------------- package --
+
+def job_package(args) -> None:
+    from vsbc.share import build_upload_zip
+
+    folder = Path(args.folder)
+    run = folder / "camera" if (folder / "camera" / "frames.csv").is_file() else folder
+    status = Status(run, "package")
+    status.update("Making the upload zip", None)
+    out = build_upload_zip(folder, Path(args.output_dir))
+    status.done(f"Upload zip: {out} ({out.stat().st_size / 1024 ** 2:.0f} MB)")
+
+
 # ----------------------------------------------------------------------- check --
 
 def _check_dic(report: dict, module) -> None:
@@ -504,6 +518,9 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--run", required=True)
     v.add_argument("--test")
     v.add_argument("--fps", type=float, default=30.0)
+    k = sub.add_parser("package")
+    k.add_argument("--folder", required=True, help="the test folder (or a camera-only recording)")
+    k.add_argument("--output-dir", required=True)
     c = sub.add_parser("check")
     c.add_argument("--camera-dir", required=True)
     c.add_argument("--output-dir", required=True)
@@ -512,8 +529,12 @@ def main(argv: list[str] | None = None) -> int:
 
     lower_priority()
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    jobs = {"dic": job_dic, "script": job_script, "annotate": job_annotate, "video": job_video, "check": job_check}
+    jobs = {"dic": job_dic, "script": job_script, "annotate": job_annotate, "video": job_video, "package": job_package,
+            "check": job_check}
     run = Path(args.run) if getattr(args, "run", None) else None
+    if run is None and getattr(args, "folder", None):
+        folder = Path(args.folder)
+        run = folder / "camera" if (folder / "camera" / "frames.csv").is_file() else folder
     try:
         jobs[args.job](args)
     except Exception as e:  # noqa: BLE001 - report to the GUI, then fail

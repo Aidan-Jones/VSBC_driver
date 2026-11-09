@@ -16,7 +16,7 @@ Stages
                  m  marker
                  c  crack! -> saves the full-rate RAM buffer AND keeps saving
                     every frame for POST_SECONDS (press again if needed)
-                 q  stop (also saves the full-rate RAM buffer)
+                 q  stop (also saves the last BREAK_SECONDS of the RAM buffer at full rate)
                 Frame 0 is the DIC reference: start with the specimen unloaded.
   4. AFTER    - frames finish writing, the frame viewer (view_frames.py) opens
                 on the crack window, then DIC runs (overview at
@@ -74,6 +74,8 @@ SAVE_EVERY = 9              # vsbc GUI only ("every k-th frame" save mode); this
 BUFFER_SECONDS = 2          # every frame of the last N s kept in RAM (covers
                             # reaction time: a brittle crack is over before 'c')
 POST_SECONDS = 1            # after 'c', save every frame for N more s (q ends it early)
+BREAK_SECONDS = 0.5         # on stop (q), only the last N s of the RAM buffer are saved
+                            # at full rate (the vsbc GUI uses its own "Before the break" setting)
 MAX_SECONDS = 1200          # safety stop (recording only), 20 min. FIX: was 45 s,
                             # which ended a tensile test early
 SETTLE_SECONDS = 5          # wait after the ROI window closes before frame 0
@@ -507,7 +509,7 @@ def main():
         "offset_x": get_feature(camera, "OffsetX"),
         "offset_y": get_feature(camera, "OffsetY"),
         "save_every": SAVE_EVERY, "save_fps": fps_cam / SAVE_EVERY,
-        "buffer_seconds": BUFFER_SECONDS,
+        "buffer_seconds": BUFFER_SECONDS, "break_seconds": BREAK_SECONDS,
         "post_seconds": POST_SECONDS,
         "model": info.GetModelName(), "serial": info.GetSerialNumber(),
         "camera_temperature_c_start": get_feature(camera, "DeviceTemperature"),
@@ -583,9 +585,12 @@ def main():
         pending_marker = label
         print(f"  {label} at frame {i} ({t:.2f} s)")
 
-    def dump_buffer():
+    def dump_buffer(last=None):
         n = 0
-        for i, im in list(ring):
+        frames = list(ring)
+        if last is not None:
+            frames = frames[-max(1, int(round(last * fps_cam))):]
+        for i, im in frames:
             full_rate_frames.add(i)
             if i not in enqueued:
                 enqueue(i, im)
@@ -707,9 +712,10 @@ def main():
             cv2.destroyAllWindows()
 
     t_total = time.perf_counter() - t0
-    n_dump = dump_buffer()
+    last_s = min(BREAK_SECONDS, BUFFER_SECONDS)
+    n_dump = dump_buffer(last_s)
     print(f"\nStopped after {t_total:.1f} s, {idx} frames grabbed. "
-          f"Saving last {BUFFER_SECONDS} s at full rate ({n_dump} more frames)...")
+          f"Saving last {last_s} s at full rate ({n_dump} more frames)...")
     while save_q.unfinished_tasks:
         print(f"  {save_q.qsize()} frames left to write   ", end="\r")
         poll_status()

@@ -54,6 +54,8 @@ length = "mm"                # "mm", "cm", "m" or "in". data.csv always keeps N 
 [storage]                     # warning banner when the drive with output_dir runs low
 warn_free_gb = 10.0
 critical_free_gb = 2.0
+upload_zips = true           # after each test, make Outputs/upload/<date>/<test>.zip: the results, the reference
+                             # frame and the full-rate break frames in ONE file, for uploading to the cloud
 
 [camera]                      # the DIC camera. Exposure, crop, buffer and DIC settings are the
                               # USER SETTINGS in camera/capture_dic_live.py.
@@ -66,7 +68,8 @@ record_with_test = true
 save_mode = "match"          # "match": the frame nearest each load sample (1:1 with data.csv)
                              # "every": every SAVE_EVERY-th frame; "all": every frame
 match_divisor = 1            # "match": one frame every this many load samples (1 = every sample)
-dump_on_break = true         # keep every frame of the RAM buffer when the Mega detects the break
+dump_on_break = true         # when the Mega detects the break, save every frame from just before it
+break_seconds = 0.5          #   ... the last this-many seconds before the break, at the full camera rate
 load_delay_ms = 0.0          # HX711 filter lag (measure with a tap test), used when pairing frames
 live_dic = false             # DIC during the test (slow on the Pi, can cost frames)
 run_dic = true               # after the test:

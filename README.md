@@ -344,7 +344,7 @@ The camera code runs in its own Python environment (`.venv-camera`, from `instal
   Use **1:1 zoom** to check the focus and **Exposure ±** to adjust (watch `sat` and `bright99.9`).
 - **Matching the load cell and the camera.** The HX711 gives 10 load readings per second as shipped (80 with its RATE jumper cut). The camera runs at its full rate (about 478 fps with the 400-row crop) and keeps the last `BUFFER_SECONDS` in RAM.
   - **The rest of the test:** for every load reading it saves the frame taken nearest that moment (about ±1 ms), so every data.csv row has its own image. Load is interpolated to each frame's exact time.
-  - **The important frames:** every frame of the RAM buffer is saved at the break (when the Mega detects it), and also while **⚡ High speed** is on. These frames carry the latest load reading, which is not interpolated across the break.
+  - **The important frames:** every frame of the last `break_seconds` (0.5 s; Camera panel **Before the break**) is saved from the RAM buffer at the break (when the Mega detects it), and also every frame while **⚡ High speed** is on. These frames carry the latest load reading, which is not interpolated across the break.
 - **⚡ High speed** (Camera tab or Test tab) saves every frame from the RAM buffer onward, until you turn it off or the test ends. Press it when the break is near. The disk usually cannot keep up at the full rate, so frames wait in RAM; the camera line shows how long that can last before the oldest high-speed frames are dropped.
 - **The test and the camera stop together.** When the test ends, the camera stops. If the camera stops (Stop recording, disk full, camera unplugged), the test stops too, and the results say why.
 - **One clock.**
@@ -375,7 +375,7 @@ The **Results** tab (left side) shows a finished test or camera recording. **Vie
   - **Crack frames only** plays the interval plus 50 frames either side, in a loop.
   - The **estimated crack frame** (★) is the frame that changes most from the one before, inside the ROI, in and just around the interval. **Jump to crack** goes there.
   - Without a detected break, the last full-rate window is shown instead.
-  - If the frames around the break were not saved at full rate, the tab names the two frames the break fell between and says to turn on **Save the RAM buffer at the break**.
+  - If the frames around the break were not saved at full rate, the tab names the two frames the break fell between and says to turn on **Save full-rate frames at the break**.
 - **Plots**: plot.png and the scripts' plots, scaled to fit. **Open full size** opens one in the system viewer.
 - **Summary**: summary.txt, the frame pairing and frame counts, the full-rate windows, the crack-tip trackers and any warnings.
 - **Play video** opens video.mp4 in the system player. **⟳** reads the files again, for example when DIC finishes after you opened the test.
@@ -431,6 +431,7 @@ Outputs/
 │   ├── serial.log      serial traffic during the test (without data lines)
 │   ├── video.mp4       with the camera: playback time = data.csv time_s, time and load on each frame
 │   └── camera/         with the camera: frames, frames.csv, DIC results, plots, crack tips (camera/README.md)
+├── upload/2026-09-29/153012_A1.zip            ONE file per test for the cloud (see below)
 ├── camera/2026-09-29/160000_noise/            recordings made without a test (Camera tab > Record)
 ├── camera/last_roi.npz                       the ROI, seed and notch tip from the Camera tab
 ├── calibration/2026-09-29_150100_load.json   one record per calibration
@@ -469,6 +470,7 @@ The results include peak load and the extension at peak, break load and extensio
 - **Outputs tab:**
   - disk usage and about how many more tests fit;
   - every test and recording with its size, camera images, video and DIC results;
+  - **Upload to the cloud**: after each test (once the video, DIC and plots are done) the app writes `Outputs/upload/<date>/<test>.zip`. It holds every file of the test except the routine camera frames: data.csv, summary, plot.png, video.mp4, meta.json, frames.csv, DIC results, plots, crack tips, the reference frame (frame 0) and the full-rate frames from just before the break. Upload the `upload/` folder (one file per test) instead of the test folders (thousands of files). **Make upload zips** remakes them for the selected tests (also for older tests); **Open upload folder** opens it. `[storage] upload_zips = false` turns the automatic zip off. Deleting a test keeps its zip.
   - **Copy to a USB drive**: plug it in, press ⟳, select tests, Copy, then **Eject**. Raw camera images are left out unless ticked. The copy goes to `VSBC_outputs/` on the drive and pauses while the camera records.
   - **Delete camera images** (frees most of the space; data.csv, video, DIC results and plots stay);
   - **Delete** a whole test;

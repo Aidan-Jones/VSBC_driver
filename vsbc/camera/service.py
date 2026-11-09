@@ -11,7 +11,7 @@ the simulated camera), sends preview frames to the GUI, and records:
 * written as TIFF files: frame 0 (the DIC reference); the frame nearest each
   load sample (the GUI sends each sample's time, so data.csv rows and frames
   pair 1:1); and every frame of a full-rate window (high-speed mode, or the
-  ring at the detected break);
+  last break_s seconds of the ring at the detected break);
 * frames.csv lists every frame grabbed; camera_clock.csv holds the timestamp
   latches; capture_settings.json the settings and the windows.
 
@@ -463,13 +463,15 @@ class Recording:
         self.every = max(1, int(opts.get("every") or s["SAVE_EVERY"]))
         self.divisor = max(1, int(opts.get("divisor") or 1))
         self.buffer_s = float(opts.get("buffer_s") or s["BUFFER_SECONDS"])
+        self.break_s = float(opts.get("break_s") or 0.5)
         self.max_s = opts.get("max_s")
         self.load_rate = float(opts.get("load_rate_hz") or 0.0) or 10.0
         self.fps = float(service.fps or 100.0)
         self.period_ns = 1e9 / self.fps
         self.width, self.height = service.width, service.height
         frame_bytes = self.width * self.height
-        self.ring: collections.deque[Frame] = collections.deque(maxlen=max(1, int(self.buffer_s * self.fps)))
+        self.ring: collections.deque[Frame] = collections.deque(
+            maxlen=max(1, int(max(self.buffer_s, self.break_s) * self.fps)))
         ram = memory_available()
         budget = 0.5 * ram if ram else 1.5 * GB
         self.queue = SaveQueue(int(max(budget, 50 * frame_bytes)))
@@ -618,7 +620,7 @@ class Recording:
         """The stop request, on the grab thread: dump the ring if asked, close the window."""
         reason, dump = self.stop_request
         if dump and not self.high_speed and self.ring:
-            self._open_window("break")
+            self._open_window("break", self.break_s)
         if self.high_speed:
             self._close_window()
         if source is not None:
@@ -664,9 +666,18 @@ class Recording:
         if self.queue.put(frame.idx, frame.image, cls):
             self.enqueued.add(frame.idx)
 
-    def _open_window(self, label: str) -> None:
+    def _open_window(self, label: str, last_s: float | None = None) -> None:
+        """Start a full-rate window with the ring's frames (only the last `last_s` seconds of them if given)."""
         self.high_speed = True
-        self.window_start = self.ring[0].idx if self.ring else self.idx
+        frames = list(self.ring)
+        if last_s is not None and frames:
+            newest = frames[-1].cam_ns
+            cutoff = newest - last_s * 1e9 if newest >= 0 and frames[0].cam_ns >= 0 else None
+            if cutoff is not None:
+                frames = [f for f in frames if f.cam_ns >= cutoff]
+            else:                          # no camera timestamps: count frames instead
+                frames = frames[-max(1, int(round(last_s * self.fps))):]
+        self.window_start = frames[0].idx if frames else self.idx
         n = len(self.windows) + 1
         crack = f"crack{n}"
         if self.rows:
@@ -674,7 +685,7 @@ class Recording:
         self.markers.append({"frame": self.rows[-1][0] if self.rows else 0, "pc_time_s": self._elapsed(),
                              "label": crack})
         self.window_labels.append(label)
-        for frame in list(self.ring):
+        for frame in frames:
             self._enqueue(frame, 2)
         self.link.send({"ev": "high_speed", "on": True, "label": label, "start": self.window_start})
 
@@ -854,7 +865,8 @@ class Recording:
             "started": self.started_iso, "status": "failed: " + self.failed if self.failed else "complete",
             "exposure_us": svc.exposure, "gain": 0.0, "fps_requested": s["FPS"], "fps_camera": svc.fps,
             "width": self.width, "height": self.height, "offset_x": offset_x, "offset_y": offset_y,
-            "save_every": self.every, "buffer_seconds": self.buffer_s, "post_seconds": 0,
+            "save_every": self.every, "buffer_seconds": self.buffer_s, "break_seconds": self.break_s,
+            "post_seconds": 0,
             "model": svc.source.model if svc.source else None, "serial": svc.source.serial if svc.source else None,
             "camera_temperature_c_start": self.temp_start,
             "camera_temperature_c_end": self.temp_end,

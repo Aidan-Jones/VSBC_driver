@@ -1,5 +1,5 @@
 """Outputs tab: the disk space, every test and camera recording stored here,
-copying them to a USB drive, and freeing space.
+copying them to a USB drive, the one-zip-per-test upload folder, and freeing space.
 
 The listing and the copy run on worker threads (sizing thousands of camera
 frames takes a moment). A copy pauses while a recording runs, so the camera
@@ -18,8 +18,9 @@ from vsbc.storage import (
     copy_outputs, copy_size, delete_entry, delete_images, delete_old_logs, eject, human_size, list_outputs,
     removable_drives, remaining_tests,
 )
+from vsbc.share import build_upload_zip, upload_dir
 
-COLUMNS = ("Started", "Specimen / name", "Result", "Size", "Camera images", "Video", "DIC")
+COLUMNS = ("Started", "Specimen / name", "Result", "Size", "Camera images", "Video", "DIC", "Upload zip")
 LEVEL_STYLE = {
     "ok": "QProgressBar::chunk { background: #1e8449; }",
     "low": "QProgressBar::chunk { background: #d68910; }",
@@ -75,6 +76,24 @@ class OutputsPanel(Panel):
         self.logs_btn = button("Delete logs older than 30 days", self.delete_logs)
         actions = flow(self.refresh_btn, self.view_btn, self.open_btn, self.delete_images_btn, self.delete_btn)
 
+        upload_box = QtWidgets.QGroupBox("Upload to the cloud")
+        upload_note = QtWidgets.QLabel(
+            f"Each test is zipped into {upload_dir(win.config.output_dir)} as <date>/<test>.zip: ONE file with "
+            "data.csv, the summary, plots, the video, DIC and crack-tip results, the reference frame and the "
+            "full-rate frames from just before the break. Upload that folder instead of the test folders.")
+        upload_note.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        upload_note.setWordWrap(True)
+        self.zip_btn = button("Make upload zips", self.zip_selected)
+        self.zip_btn.setToolTip("Make (or remake) the upload zip of the selected tests")
+        self.open_upload_btn = button("Open upload folder", self.open_upload)
+        self.zip_text = QtWidgets.QLabel()
+        self.zip_text.setWordWrap(True)
+        z = QtWidgets.QVBoxLayout(upload_box)
+        z.addWidget(upload_note)
+        z.addLayout(flow(self.zip_btn, self.open_upload_btn))
+        z.addWidget(self.zip_text)
+        self._zipping = False
+
         usb_box = QtWidgets.QGroupBox("Copy to a USB drive")
         self.drives = narrow_combo(QtWidgets.QComboBox())
         self.find_btn = button("⟳", self.find_drives)
@@ -109,6 +128,7 @@ class OutputsPanel(Panel):
         layout.addWidget(listing)
         layout.addWidget(self.table, 1)
         layout.addLayout(actions)
+        layout.addWidget(upload_box)
         layout.addWidget(usb_box)
         layout.addWidget(self.logs_btn)
         self._selection_changed()
@@ -177,7 +197,7 @@ class OutputsPanel(Panel):
             images = ("deleted" if e.images_deleted else
                       f"{e.n_images} ({human_size(e.images_size)})" if e.n_images else "—")
             cells = (started, e.name, result, human_size(e.size), images, "yes" if e.has_video else "—",
-                     f"{e.n_dic} frames" if e.n_dic else "—")
+                     f"{e.n_dic} frames" if e.n_dic else "—", "yes" if e.has_upload else "—")
             for col, text in enumerate(cells):
                 item = QtWidgets.QTableWidgetItem(text)
                 if col == 0:
@@ -212,6 +232,7 @@ class OutputsPanel(Panel):
         self.view_btn.setEnabled(len(chosen) == 1 and self.win.runner is None)
         self.delete_btn.setEnabled(free)
         self.delete_images_btn.setEnabled(free and any(e.n_images for e in chosen))
+        self.zip_btn.setEnabled(free and not self._zipping)
         self.copy_btn.setEnabled(bool(chosen) and not self._copying and self.drives.count() > 0
                                  and self.drives.currentData() is not None)
 
@@ -249,7 +270,8 @@ class OutputsPanel(Panel):
         total = sum(e.size for e in chosen)
         names = ", ".join(e.name for e in chosen[:5]) + ("..." if len(chosen) > 5 else "")
         if not self.win.ask("Delete", f"Permanently delete {len(chosen)} folder(s) ({names}), {human_size(total)}?\n\n"
-                                      "This cannot be undone. Copy them to a USB drive first if you need them."):
+                                      "This cannot be undone. Copy them to a USB drive first if you need them. "
+                                      "Their upload zips (if any) are kept."):
             return
         output_dir = self.win.config.output_dir
         self.win.run_async(lambda: sum(delete_entry(e, output_dir) for e in chosen),
@@ -261,6 +283,47 @@ class OutputsPanel(Panel):
         self.win.run_async(lambda: delete_old_logs(self.win.config.logs_dir, 30.0),
                            lambda r: (self.win.status(f"Deleted {r[0]} log file(s), {human_size(r[1])}"),
                                       self.refresh()))
+
+    # ------------------------------------------------------------ uploading --
+    def zip_selected(self) -> None:
+        chosen = self.selected()
+        if not chosen or self._zipping:
+            return
+        self._zipping = True
+        self._selection_changed()
+        output_dir = self.win.config.output_dir
+        self.zip_text.setText(f"Zipping {len(chosen)} test(s)...")
+
+        def work():
+            made, errors = [], []
+            for e in chosen:
+                try:
+                    made.append(build_upload_zip(e.path, output_dir))
+                except OSError as exc:
+                    errors.append(f"{e.name}: {exc}")
+            return made, errors
+
+        def finished(result):
+            self._zipping = False
+            made, errors = result
+            size = sum(p.stat().st_size for p in made if p.is_file())
+            text = f"Made {len(made)} upload zip(s), {human_size(size)}, in {upload_dir(output_dir)}."
+            if errors:
+                text += f" {len(errors)} failed: {errors[0]}"
+            self.zip_text.setText(text)
+            self.refresh()
+
+        def failed(exc):
+            self._zipping = False
+            self._selection_changed()
+            self.zip_text.setText(f"Zipping failed: {exc}")
+
+        self.win.run_async(work, finished, failed, busy=False)
+
+    def open_upload(self) -> None:
+        folder = upload_dir(self.win.config.output_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(folder)))
 
     # -------------------------------------------------------------- copying --
     def find_drives(self) -> None:

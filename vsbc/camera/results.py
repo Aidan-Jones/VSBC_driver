@@ -296,7 +296,7 @@ def find_crack(res: RunResults, context: int = CRACK_CONTEXT_FRAMES) -> CrackWin
             between = (f"between frame {before} and frame {nxt}" if before is not None and nxt is not None
                        else "at the edge of the recording")
             crack.note = (f"The load dropped {span}, {between}: only {crack.n_frames} frame(s) saved in between. "
-                          "Turn on \"Save the RAM buffer at the break\" (Camera panel) for full-rate frames.")
+                          "Turn on \"Save full-rate frames at the break\" (Camera panel) for full-rate frames.")
         return crack
     windows = res.windows
     if windows:

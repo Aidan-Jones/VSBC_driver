@@ -79,7 +79,8 @@ class CameraConfig:
     record_with_test: bool = True
     save_mode: str = "match"         # "match": the frame nearest each load sample; "every": SAVE_EVERY; "all"
     match_divisor: int = 1           # "match": one frame every this many load samples
-    dump_on_break: bool = True       # keep every frame of the RAM buffer when the Mega detects the break
+    dump_on_break: bool = True       # save full-rate frames from just before the break when the Mega detects it
+    break_seconds: float = 0.5       # how many seconds before the break are saved at full rate
     load_delay_ms: float = 0.0       # HX711 filter lag, used when pairing frames with load samples
     live_dic: bool = False           # DIC during the test (competes with grabbing on the Pi)
     run_dic: bool = True             # after the test
@@ -101,6 +102,7 @@ class UnitsConfig:
 class StorageConfig:
     warn_free_gb: float = 10.0       # banner when less than this is free where the outputs are saved
     critical_free_gb: float = 2.0
+    upload_zips: bool = True         # after each test, zip it into Outputs/upload/<date>/<test>.zip for the cloud
 
 
 @dataclass

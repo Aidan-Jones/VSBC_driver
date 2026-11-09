@@ -34,7 +34,7 @@ ANIMATION_FRAMES = 300
 @dataclass
 class Job:
     title: str
-    kind: str                       # dic, strain, crack_image, crack_opening, annotate, video
+    kind: str                       # dic, strain, crack_image, crack_opening, annotate, video, package
     args: list[str]
     run: Path                       # the recording folder (status and log go there)
     needs: tuple[str, ...] = ()     # skipped when one of these failed
@@ -150,8 +150,8 @@ class PostProcessor:
         trackers = []
         if (options.crack_tip_image or options.crack_tip_opening) and dic_ok and notch is None:
             options.notes.append("Crack tips skipped: set the notch tip (Camera tab > Edit ROI)")
-        elif dic_ok:
-            base = {"RUN_FOLDER": str(run), "NOTCH_TIP": [int(notch[0]), int(notch[1])],
+        elif dic_ok and (options.crack_tip_image or options.crack_tip_opening):
+            base ={"RUN_FOLDER": str(run), "NOTCH_TIP": [int(notch[0]), int(notch[1])],
                     "CRACK_FROM_LEFT": bool(roi.crack_from_left)}
             if options.crack_tip_image:
                 trackers.append(script("crack_image", "crack tip (image)", CRACK_IMAGE, base))
@@ -163,6 +163,11 @@ class PostProcessor:
         if trackers:
             jobs.append(Job(f"{name}: crack-tip times and load", "annotate",
                             py_job + ["annotate", "--run", str(run)], run))
+        if self.config.storage.upload_zips:
+            # Last, and needing nothing: the zip is made even when DIC failed.
+            jobs.append(Job(f"{name}: upload zip", "package",
+                            py_job + ["package", "--folder", str(test or run),
+                                      "--output-dir", str(self.config.output_dir)], run))
         return jobs
 
     def add(self, jobs: list[Job]) -> None:

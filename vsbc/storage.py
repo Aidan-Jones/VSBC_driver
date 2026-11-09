@@ -23,6 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from vsbc.share import upload_path
+
 log = logging.getLogger(__name__)
 
 GB = 1024 ** 3
@@ -97,6 +99,7 @@ class OutputEntry:
     has_video: bool = False
     has_plots: bool = False
     images_deleted: bool = False
+    has_upload: bool = False          # Outputs/upload/<date>/<name>.zip exists
 
     @property
     def camera_dir(self) -> Path:
@@ -212,6 +215,7 @@ def list_outputs(output_dir: Path) -> list[OutputEntry]:
         entry.has_video = (entry.path / "video.mp4").is_file()
         entry.has_plots = (entry.camera_dir / "plots").is_dir() or (entry.path / "plot.png").is_file()
         entry.images_deleted = (entry.camera_dir / IMAGES_DELETED_FILE).is_file()
+        entry.has_upload = upload_path(entry.path, output_dir).is_file()
     entries.sort(key=lambda e: e.started, reverse=True)
     return entries
 

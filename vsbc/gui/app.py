@@ -609,7 +609,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._sync_test(result.folder)
         else:
             self.postprocess.resume()
+            if result.folder is not None and self.config.storage.upload_zips:
+                self.make_upload_zip(result.folder)     # no camera jobs: zip it now (small)
         self.check_storage()
+
+    def make_upload_zip(self, folder: Path) -> None:
+        """Outputs/upload/<date>/<test>.zip, in the background."""
+        from vsbc.share import build_upload_zip
+
+        output_dir = self.config.output_dir
+        self.run_async(lambda: build_upload_zip(folder, output_dir),
+                       lambda path: self.console.note(f"Upload zip: {path}"),
+                       lambda exc: self._add_warning(f"Could not make the upload zip: {exc}"), busy=False)
 
     def _test_failed(self, exc: BaseException) -> None:
         self.runner = None
