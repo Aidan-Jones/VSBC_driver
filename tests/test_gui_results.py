@@ -77,9 +77,9 @@ def test_results_tab_shows_the_crack_frames(app, config):
     win.show()
     view = win.results_view
     try:
-        assert win.plots.tabText(win.results_index) == "Results"
+        assert win.left_tabs.tabText(win.results_index) == "Results"
         win.show_results(folder)
-        assert win.plots.currentWidget() is view
+        assert win.left_tabs.currentWidget() is win.results_tab and win.results_tab.inner.currentWidget() is view
         assert _wait(app, lambda: view.res is not None and view.res.crack is not None
                      and view.res.crack.estimate is not None, 10)
         res, crack = view.res, view.res.crack
@@ -108,12 +108,12 @@ def test_results_tab_shows_the_crack_frames(app, config):
 
         # A test starts: the tab is greyed out and the view moves to another tab.
         win.runner = _Runner()
-        assert _wait(app, lambda: not win.plots.isTabEnabled(win.results_index), 2)
-        assert win.plots.currentWidget() is not view and not view.timer.isActive()
+        assert _wait(app, lambda: not win.left_tabs.isTabEnabled(win.results_index), 2)
+        assert win.left_tabs.currentWidget() is not win.results_tab and not view.timer.isActive()
         win.show_results(folder)                                   # refused
-        assert win.plots.currentWidget() is not view
+        assert win.left_tabs.currentWidget() is not win.results_tab
         win.runner = None
-        assert _wait(app, lambda: win.plots.isTabEnabled(win.results_index), 2)
+        assert _wait(app, lambda: win.left_tabs.isTabEnabled(win.results_index), 2)
     finally:
         win.runner = None
         win.close()

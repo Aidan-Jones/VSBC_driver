@@ -157,7 +157,7 @@ def test_test_recorded_with_the_simulated_camera(app, config):
         # Results tab: the simulated specimen cracks at the break, and the RAM buffer was saved then.
         win.test_panel.view_btn.click()
         view = win.results_view
-        assert win.plots.currentWidget() is view
+        assert win.left_tabs.currentWidget() is win.results_tab and win.results_tab.inner.currentWidget() is view
         assert _wait(app, lambda: view.res is not None and view.res.test == folder, 10)
         crack = view.res.crack
         assert crack is not None and crack.source == "break" and crack.n_frames >= 1

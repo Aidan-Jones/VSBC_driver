@@ -1165,7 +1165,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if pp.busy or getattr(pp, "queue", None):
             summary = pp.summary()
             short = summary if len(summary) <= 60 else summary[:57] + "..."
-            self.post_status.setText(dot(t.accent, f"Processing: {short}"))
+            self.post_status.setText(f"<a href='dic' style='color:{t.text}; text-decoration:none'>"
+                                     f"{dot(t.accent, f'Processing: {short}')}</a>")
             self.post_status.setToolTip(summary)
             self.post_status.show()
         else:
@@ -1177,10 +1178,6 @@ class MainWindow(QtWidgets.QMainWindow):
         busy = self.busy_ops > 0 or self.runner is not None or (connected and s is not None and s.moving)
         if not connected:
             self.disabled_reason = "Connect to the machine first (Connect, top left)."
-        self.readiness_items: list = []         # the Ready checklist (vsbc.gui.readiness), on the slow tick
-        self._status_due = False                # read STATUS soon (after ZERO, TARE, ...)
-        self._status_polling = False
-        self._last_status_poll = 0.0
         elif self.runner is not None:
             self.disabled_reason = "A test is running."
         elif s is not None and s.moving:

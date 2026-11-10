@@ -6,6 +6,7 @@ from __future__ import annotations
 import html
 import logging
 import math
+import time
 from pathlib import Path
 
 from vsbc import FIRMWARE_VERSION, PROTOCOL_VERSION
@@ -107,6 +108,7 @@ class TestPanel(Panel):
         self.specimen.textChanged.connect(lambda _t: win.refresh_readiness())
 
         self.start_btn = button("▶  Start test", win.start_test, start_style, em(3.4))
+        self.start_btn.setEnabled(False)          # until the checklist is complete (update_enabled)
         self.start_hint = QtWidgets.QLabel()
         self.start_hint.setProperty("role", "hint")
         self.start_hint.setWordWrap(True)
@@ -471,7 +473,8 @@ class ConsolePanel(Panel):
         self.text.setReadOnly(True)
         self.text.setFont(mono_font())
         self.text.setMaximumBlockCount(3000)
-        self.show_data = QtWidgets.QCheckBox("Show data lines (D ...)")
+        self.show_data = QtWidgets.QCheckBox("Show data lines and automatic polls")
+        self._typed: dict[str, float] = {}      # command word -> when the operator typed it
         self.entry = QtWidgets.QLineEdit()
         self.entry.setPlaceholderText("Command, e.g. STATUS, GET or ?  (any command stops a running move)")
         self.entry.returnPressed.connect(self.send)
@@ -493,9 +496,23 @@ class ConsolePanel(Panel):
         style = "white-space:pre-wrap;" + (f"color:{color};" if color else "") + ("font-style:italic;" if italic else "")
         self.text.appendHtml(f"<span style='{style}'>{html.escape(text)}</span>")
 
+    POLLS = {"PING", "STATUS"}
+    ALIASES = {"S": "STATUS"}
+
+    def _hidden(self, text: str, sent: bool) -> bool:
+        """Data lines and the app's own keep-alive / checklist polls, unless the operator typed them."""
+        if self.show_data.isChecked():
+            return False
+        if text.startswith("D "):
+            return True
+        words = text.split()
+        word = words[0] if sent and words else words[1] if len(words) > 1 and words[0] in ("OK", "ERR") else ""
+        word = self.ALIASES.get(word.upper(), word.upper())
+        return word in self.POLLS and time.monotonic() - self._typed.get(word, -1e9) > 3.0
+
     def append(self, text: str, sent: bool) -> None:
         """Sent commands in the accent colour, errors red, events purple, data lines grey."""
-        if text.startswith("D ") and not self.show_data.isChecked():
+        if self._hidden(text, sent):
             return
         t = theme()
         if sent:
@@ -517,6 +534,8 @@ class ConsolePanel(Panel):
     def send(self) -> None:
         cmd = self.entry.text().strip()
         if cmd and self.machine.connected:
+            word = cmd.split()[0].upper()
+            self._typed[self.ALIASES.get(word, word)] = time.monotonic()
             self.machine.send_raw(cmd)
             self.entry.clear()
 

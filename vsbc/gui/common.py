@@ -715,6 +715,10 @@ class Section(QtWidgets.QWidget):
         self.header = QtWidgets.QPushButton()
         self.header.setProperty("role", "section")
         self.header.clicked.connect(self.toggle)
+        self.summary = QtWidgets.QLabel()          # the values at a glance while folded (wraps on narrow screens)
+        self.summary.setProperty("role", "hint")
+        self.summary.setWordWrap(True)
+        self.summary.setContentsMargins(em(1.4), 0, 0, 0)
         self.frame = QtWidgets.QFrame()
         if framed:
             self.frame.setObjectName("sectionBody")
@@ -726,6 +730,7 @@ class Section(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(em(0.25))
         layout.addWidget(self.header)
+        layout.addWidget(self.summary)
         layout.addWidget(self.frame)
         self.set_expanded(expanded, emit=False)
 
@@ -749,10 +754,9 @@ class Section(QtWidgets.QWidget):
         self._label()
 
     def _label(self) -> None:
-        text = f"{'▾' if self._expanded else '▸'}  {self.title}"
-        if self._summary and not self._expanded:
-            text += f"   ·   {self._summary}"
-        self.header.setText(text)
+        self.header.setText(f"{'▾' if self._expanded else '▸'}  {self.title}")
+        self.summary.setText(self._summary)
+        self.summary.setVisible(bool(self._summary) and not self._expanded)
 
 
 def flash(widget, ms: int = 1500) -> None:

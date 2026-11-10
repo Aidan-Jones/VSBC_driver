@@ -64,15 +64,17 @@ def window(app, config, monkeypatch):
 
 def _open(app, win):
     view = win.dic_view
-    win.plots.setCurrentIndex(win.dic_index)
-    assert win.plots.currentWidget() is view
+    win.show_dic()                     # Results > DIC analysis, following the Results tab's test picker
+    assert win.left_tabs.currentWidget() is win.results_tab and win.results_tab.inner.currentWidget() is view
     assert _wait(app, lambda: view.data is not None and view.dic_pane.frames, 10)
+    # It shows the test chosen in the Results tab's picker (one picker for Overview and DIC analysis).
+    assert Path(view.data.res.folder) == win.results_view.current_folder()
     return view
 
 
 def test_dic_tab_validates_and_runs(app, window, monkeypatch):
     win = window
-    assert win.plots.tabText(win.dic_index) == "DIC" and win.dic_index == win.results_index + 1
+    assert win.results_tab.inner.tabText(1) == "DIC analysis" and win.results_tab.inner.widget(1) is win.dic_view
     view = _open(app, win)
     pane = view.run_pane
     pane.run_strain.setChecked(True)
@@ -145,10 +147,10 @@ def test_dic_tab_is_greyed_out_during_a_test(app, window):
     win = window
     view = _open(app, win)
     win.runner = _Runner()
-    assert _wait(app, lambda: not win.plots.isTabEnabled(win.dic_index), 2)
-    assert win.plots.currentWidget() is not view and not view.available
+    assert _wait(app, lambda: not win.left_tabs.isTabEnabled(win.results_index), 2)
+    assert win.left_tabs.currentWidget() is not win.results_tab and not view.available
     win.runner = None
-    assert _wait(app, lambda: win.plots.isTabEnabled(win.dic_index), 2)
+    assert _wait(app, lambda: win.left_tabs.isTabEnabled(win.results_index), 2)
 
 
 def test_cancel_run_leaves_other_tests_alone(config, tmp_path):

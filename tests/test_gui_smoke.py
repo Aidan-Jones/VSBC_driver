@@ -34,15 +34,29 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
     win.resize(1280, 800)
     win.show()
     try:
-        # The Camera tab comes first and is the one showing.
-        assert win.plots.tabText(0) == "Camera" and win.plots.currentWidget() is win.camera_view
-        assert [win.plots.tabText(i) for i in (1, 2)] == ["Load – extension", "Load && position – time"]
+        # Left: Camera (first, showing) · Live (two plots) · Results. Right: in the order of the work.
+        tabs = win.left_tabs
+        assert [tabs.tabText(i) for i in range(tabs.count())] == ["Camera", "Live", "Results"]
+        assert tabs.currentWidget() is win.camera_view
+        assert [win.plots.tabText(i) for i in (0, 1)] == ["Load – extension", "Load && position – time"]
+        assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == ["Test", "Machine", "Camera", "Outputs",
+                                                                           "System"]
+        # Offline: the checklist asks to connect, Start says why it is greyed out, no chip yet.
+        win.refresh_readiness()
+        assert [i.key for i in win.readiness_items if i.required] == ["connect", "specimen"]
+        assert not win.test_panel.start_btn.isEnabled() and win.ready_chip.isHidden()
         win.connect_machine(None, sim=SimulatedMega(specimen=Specimen(**FAST_SPECIMEN), seed=3))
         assert _wait(app, lambda: win.machine.connected and win.machine.latest is not None
                      and win.connect_btn.text() == "Disconnect")
         assert win.state_label.text() == "IDLE"
         assert _wait(app, lambda: "background" in win.state_label.styleSheet(), 2)     # the state pill
-        assert win.test_panel.start_btn.isEnabled()
+        # Connected and referenced (the simulator zeroes itself): only the specimen ID is left.
+        assert _wait(app, lambda: [i.key for i in win.readiness_items if i.required] == ["specimen"], 3)
+        assert not win.test_panel.start_btn.isEnabled() and "specimen" in win.test_panel.start_hint.text()
+        assert "1 step" in win.ready_chip.text()
+        win.test_panel.specimen.setText("GUI-1")
+        assert _wait(app, lambda: win.test_panel.start_btn.isEnabled(), 2)
+        assert "Ready" in win.ready_chip.text()
 
         # Jog +1 mm (default step) at the jog rate.
         win.jog_panel.jog(+1)
@@ -67,7 +81,7 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
         assert win.test_panel.specimen.text() == "GUI-2"                 # counts up for the next specimen
         assert "break" in win.test_panel.stop_card.value.text().lower()
         assert len(win.plots._ext) > 10
-        assert win.plots.currentWidget() is win.camera_view       # a test does not switch away from the camera
+        assert win.left_tabs.currentWidget() is win.camera_view   # a test does not switch away from the camera
 
         # STOP during a jog.
         win.jog_panel.rate.setValue(1.0)
@@ -96,6 +110,9 @@ def test_gui_remembers_layout_theme_and_test_settings(app, config):
         win.test_panel.specimen.setText("B07")
         win.test_panel.rate.setValue(12.0)
         win.tabs.setCurrentWidget(win.jog_panel)
+        win.machine_panel.calibration_section.set_expanded(True)      # folded by default
+        win.test_panel.stops.set_expanded(True)
+        win.test_panel.stops.set_expanded(False)
         win.set_theme("dark")
         assert common.theme() is common.DARK
 
@@ -117,7 +134,9 @@ def test_gui_remembers_layout_theme_and_test_settings(app, config):
         panel = again.test_panel
         assert panel.operator.text() == "Sam" and panel.specimen.text() == "B07"
         assert panel.rate.si_value() == pytest.approx(12.0)
-        assert again.tabs.currentWidget().widget() is again.jog_panel
+        assert again.tabs.currentWidget().isAncestorOf(again.jog_panel)     # the Machine tab
+        assert again.machine_panel.calibration_section.is_expanded()
+        assert not again.test_panel.stops.is_expanded() and "break at" in again.test_panel.stops.summary.text()
         prefs = again._gui_prefs()
         assert prefs["theme"] == "dark" and prefs["geometry"] and len(prefs["splitter"]) == 2
     finally:

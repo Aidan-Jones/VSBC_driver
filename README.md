@@ -148,7 +148,7 @@ Both wirings:
 - **Tension must read as positive load.**
   - The break detection and the results depend on it.
   - The calibration sets the sign. The load-cell wizard asks whether the known loads hang from the load cell (tension) or are placed on it (compression); on the command line, use `--compression`.
-  - If tension still shows negative, **Calibrate → Flip load sign** fixes it without recalibrating. The app warns during a test when this happens.
+  - If tension still shows negative, **Machine → Calibration → Flip load sign** fixes it without recalibrating. The app warns during a test when this happens.
 - The calibration is stored on the Mega for both. Calibrate again after moving the amplifier from one to the other.
 
 The Pi connects to the Mega with a USB cable. Opening the port resets the Mega, so the position has to be set again after the app connects (see [Position reference](#position-reference)).
@@ -231,16 +231,28 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ [port ▼] [⟳] [Disconnect]   /dev/ttyACM0 · vsbc_firmware 2.3.0     [STOP] │
-│  LOAD          POSITION          EXTENSION          STATE                 │
-│  123.45 N      12.3450 mm        2.3450 mm          TEST                  │
-├──────────────────────────────────────────┬────────────────────────────────┤
-│ [Camera] [Load – extension]              │ [Test] [Camera] [Outputs]      │
-│ [Load & position – time] [Results] [DIC] │ [Jog] [Calibrate] [Display] ...│
-│   (camera preview, live plot, results)   │  (tab contents)                │
-└──────────────────────────────────────────┴────────────────────────────────┘
+│ [port ▼] [⟳] [Disconnect]  ● /dev/ttyACM0 · vsbc_firmware 2.3.0  (✓ Ready) [STOP] │
+│  LOAD          POSITION          EXTENSION          STATE                         │
+│  123.45 N      12.3450 mm        2.3450 mm          TEST                          │
+├──────────────────────────────────────────┬────────────────────────────────────────┤
+│ [Camera] [Live] [Results]                │ [Test] [Machine] [Camera] [Outputs]    │
+│   (camera preview, live plots,           │ [System]                               │
+│    a finished test)                      │  Ready to test: ✓ Connected ...        │
+└──────────────────────────────────────────┴────────────────────────────────────────┘
 ```
 
+**The workflow.** The tabs follow the order of the work: **Test** (what to do next and the test itself) →
+**Machine** (jog, position reference, calibration) → **Camera** (what is recorded) → **Outputs** (the files) →
+**System** (display, console, firmware). Rarely used settings are folded away under **▸** headings; tap one to open
+it. The app remembers which ones you leave open.
+
+- **Ready to test** (top of the Test tab): the steps still to do before a test, in order: connect, calibrate the
+  load cell, set the position reference, select both motors, enter a specimen ID, and the camera when it records
+  with the test. Each open step has a button (**Connect**, **Set...**, **Calibrate...**, **Enter**, ...) that
+  opens the place where it is done, unfolds it and highlights it. **Start test** stays greyed out until the
+  required steps are done, and says which one is next. Amber ⚠ lines (camera not running, load sign reversed)
+  are worth a look but do not block the test. The chip next to STOP shows the same at a glance (**✓ Ready** or
+  **2 steps before a test**); tap it to see the list.
 - **STOP** (or **Esc** / **Space**) stops the motors immediately. It is always enabled. Any command sent while the motors are moving also stops them.
 - **Connect**: pick the Mega's port (or "Auto-detect", or "Simulator") and press Connect. The dot next to it is grey when not connected, amber while connecting, green on the Mega and purple on the simulator. Warnings (load cell not found, not calibrated, position not referenced, storage low) appear in a banner under the readouts, one per line. **×** hides them until they happen again; red ones (connection lost, disk almost full, camera stopped recording) stay until their cause is gone.
 - **Readouts**: load, crosshead position and extension since the test started, each on a card whose top edge has the colour of its plot curve, and the machine state as a coloured pill (grey OFFLINE, blue IDLE, amber MOVE, green RUN/TEST). Values are in the units chosen in the Display tab.
@@ -248,23 +260,20 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 - A greyed-out button says why in its tool tip; under **Start test** the reason is shown in words (for example "Connect to the machine first").
 - **Left tabs**:
   - **Camera** (the default): the live preview, the ROI editor and the high-speed button (see [DIC camera](#dic-camera)).
-  - **Load – extension**: the current test.
-  - **Load & position – time**: the last 60 s. Until the first test after starting the app, only the last 20 s.
-  - **Results**: a finished test's camera frames, with the frames where the crack happened picked out. Also its plots and summary (see [Viewing the results](#viewing-the-results)). Greyed out while a test or a camera recording runs.
-  - **DIC**: choose a test, check it, run DIC on it, and look at the displacement, strain and crack tips (see [The DIC tab](#the-dic-tab)). Greyed out while a test or a camera recording runs.
+  - **Live**: **Load – extension** (the current test) or **Load & position – time** (the last 60 s; until the first test after starting the app, only the last 20 s).
+  - **Results**: one test picker over two pages. **Overview**: a finished test's camera frames, with the frames where the crack happened picked out, its plots and summary (see [Viewing the results](#viewing-the-results)). **DIC analysis**: check the test, run DIC on it, and look at the displacement, strain and crack tips; it also has **Process a folder…** and pauses or resumes all post-processing (see [The DIC tab](#the-dic-tab)). Greyed out while a test or a camera recording runs.
 
 Tabs on the right:
 
 | Tab | What it does |
 |---|---|
-| **Test** | **Specimen** (ID, area and gauge length, operator, notes) and **Test settings** (rate, maximum extension, load and break limits, tare before starting, return afterwards). **Start test**, the **⚡ High-speed camera** button during a test, then the peak load, extension at peak and stop reason as cards over the results summary, **View results** (the Results tab) and **Open results folder**. After a test the specimen ID counts up (A1 → A2, S-09 → S-10). The settings, operator and next ID are remembered. |
-| **Camera** | Camera settings from `camera/capture_dic_live.py`: recording with each test, frames per load sample, RAM buffer, settle time, load-cell delay, DIC options, and what runs after the test (video, DIC, strain, crack tips). It also checks the camera scripts and has Reload, Process a folder, and Check camera. |
+| **Test** | **Ready to test** (above), **Specimen** (ID, area and gauge length, operator, notes) and **Test settings**: rate and maximum extension, with **▸ Stop conditions** (stop load, break detection, tare before starting, return afterwards) folded; its header lists the current values. **Start test**, the **⚡ High-speed camera** button during a test, then the peak load, extension at peak and stop reason as cards over the results summary, **View results** (the Results tab) and **Open results folder**. After a test the specimen ID counts up (A1 → A2, S-09 → S-10). The settings, operator and next ID are remembered. |
+| **Machine** | **Jog**: rate, step (0.01 / 0.1 / 1 / 10 mm, or 0.001–0.5 in), ▲ / ▼ buttons (also the arrow keys), Go to, Home, Tare. **Position reference**: set it, or restore the saved one. **▸ Calibration and limits**: the calibration stored on the Mega ("not calibrated" in red, an overload cutoff that is off in amber), the load-cell wizard, **flip load sign**, overload cutoff, the travel wizard, direction check, travel limits. **▸ Service**: move one motor only. |
+| **Camera** | Camera settings from `camera/capture_dic_live.py`. **Recording**: with each test, frames per load sample, RAM buffer, settle time. **After each test**: video, DIC, strain, crack tips. **▸ Advanced**: load-cell delay (time sync), DIC parameters and live DIC, the camera scripts with Reload and Check camera. To process a test now, use Results › DIC analysis. |
 | **Outputs** | Disk space, every test and recording with its size and result (green: ended by itself, red: safety stop), **View results** (or double-click a row), **Copy to a USB drive**, delete a test or only its camera images, delete old logs. |
-| **Jog** | Move the crosshead: rate, step (0.01 / 0.1 / 1 / 10 mm, or 0.001–0.5 in), ▲ / ▼ buttons (also the arrow keys), Go to, Home, Tare. Set the position reference. Service mode: move one motor only. |
-| **Calibrate** | Shows the calibration stored on the Mega ("not calibrated" in red, an overload cutoff that is off in amber). **Load cell**: wizard, **flip load sign**, overload cutoff. **Travel and direction**: wizard, direction check, travel limits. |
-| **Display** | **Theme**: light, or dark for dim rooms (it applies at once and is remembered). Units: force in N or lbf; travel in mm, cm, m or in. The GUI uses these units everywhere. data.csv keeps its N/mm columns and gets extra columns in the chosen units; summary.txt, plot.png and the video use them too. The choice is remembered. |
-| **Console** | Raw serial terminal (like the Serial Monitor) and a log of events: sent commands blue, errors red, events purple, notes grey. **Clear** empties it. |
-| **Firmware** | Shows the firmware version with ✓ when it matches, ✗ when the protocol differs; compiles and uploads the firmware (arduino-cli). |
+| **System › Display** | **Theme**: light, or dark for dim rooms (it applies at once and is remembered). Units: force in N or lbf; travel in mm, cm, m or in. The GUI uses these units everywhere. data.csv keeps its N/mm columns and gets extra columns in the chosen units; summary.txt, plot.png and the video use them too. The choice is remembered. |
+| **System › Console** | Raw serial terminal (like the Serial Monitor) and a log of events: sent commands blue, errors red, events purple, notes grey. The app's own keep-alive and status polls are hidden unless **Show data lines and automatic polls** is ticked (one you type is always shown). **Clear** empties it. |
+| **System › Firmware** | Shows the firmware version with ✓ when it matches, ✗ when the protocol differs; compiles and uploads the firmware (arduino-cli). |
 
 The GUI sizes itself for the screen it opens on. Text, buttons, readouts and plot labels scale with the screen: 800 × 480 and 1024 × 600 touchscreens get 13 px text (the smallest size that is still easy to read), a 1280 × 800 screen gets `font_pt` (11 pt), and larger or high-resolution screens get proportionally bigger text. Sizes are in pixels, so a screen that reports a wrong physical size (common on HDMI touchscreens) does not make the text tiny or huge. On a narrow screen, button rows and the tab buttons wrap onto a second row instead of scrolling sideways. Only a tab taller than the screen scrolls, and only up and down. A window smaller than 1280 × 800 opens maximised; after that the app reopens at its last size and position, with the same tabs and divider position. If the text is still too small or too large, set `scale` under `[gui]` in `config.toml`. It replaces the automatic factor: `scale = 1.2` gives 1.2 × `font_pt` on any screen. The log records the screen size and text size the GUI chose.
 
@@ -272,7 +281,7 @@ The GUI sizes itself for the screen it opens on. Text, buttons, readouts and plo
 
 The motors are open loop: there is no encoder or limit switch, so the Mega only knows the position relative to where it was told "this is zero". Opening the USB port resets the Mega, and a reset loses the position.
 
-After connecting, jog to your reference position (for example the grips at a marked gap), then **Jog → Set current position to 0**. The travel limits are measured from this reference, and the Mega refuses to start a test until the position is referenced. When the app closes cleanly it saves the position. **Restore last saved position** puts it back, but only use it if the crosshead has not moved since.
+After connecting, jog to your reference position (for example the grips at a marked gap), then **Machine → Position reference → Set current position to 0**. The travel limits are measured from this reference, and the Mega refuses to start a test until the position is referenced. When the app closes cleanly it saves the position. **Restore last saved position** puts it back, but only use it if the crosshead has not moved since.
 
 ---
 
@@ -282,14 +291,14 @@ Everything is stored in the Mega's EEPROM, so the Mega is the source of truth. T
 
 Do them in this order the first time:
 
-1. **Direction check** (Calibrate tab). The crosshead moves +1 mm; confirm it moved in the tension direction (grips apart). If not, the app flips `dir_invert` and saves it. You can also check motor B on its own; do this only with the screws uncoupled.
+1. **Direction check** (Machine tab › Calibration). The crosshead moves +1 mm; confirm it moved in the tension direction (grips apart). If not, the app flips `dir_invert` and saves it. You can also check motor B on its own; do this only with the screws uncoupled.
 2. **Travel (steps/mm)**. The crosshead moves a set distance (default 20 mm). You measure the real travel with calipers or a dial indicator and enter it; repeat a few times if you like. The app sets `steps_per_mm = old × commanded ÷ measured`. An error of more than 5 % is flagged as a problem to fix, not calibrate away: most likely the microstep DIP switches or the screw lead. For example, a 0.016 ratio means the drivers are still at 25000 pulses/rev. Afterwards, set the position reference again.
 3. **Load cell**. With nothing on the load cell, **Tare + record zero**.
    - Choose how the known loads act: hanging from or pulling on the load cell (tension), or placed on it (compression). Either way, tension comes out positive.
    - Apply each known load, enter it in g, kg, lb or N, and press **Record**. Each point is averaged over 3 s. Use 2–5 loads that span the range you will test in.
    - The app fits a straight line (least squares) and shows R² and the worst error, in your force unit and as % of capacity.
    - **Save** writes `load_scale` and `load_offset` to the Mega and offers to set the overload cutoff to 90 % of `capacity_n`.
-   - If a later test shows tension as negative load, **Flip load sign** in the Calibrate tab fixes it.
+   - If a later test shows tension as negative load, **Flip load sign** (Machine tab › Calibration) fixes it.
 4. **Travel limits**. Jog to the lowest and highest safe positions and press **Set lower / upper travel limit here**. Any move beyond them is refused.
 5. **Overload cutoff** (`max_load`). Any move stops when |load| reaches it while the load is rising. Set it below the load cell's and the frame's rating.
 
@@ -305,7 +314,7 @@ vsbc calibrate load --no-mega
 
 It asks for the same zero point and known loads as step 3, reading the HX711 directly. The result is kept in `Outputs/pending_load_calibration.json`. The next time the app connects to the Mega (with the load cell read by the Pi), it stores the calibration on the Mega, deletes that file and says so in the warning banner. From then on the Mega holds the calibration, as usual.
 
-- Command line only: the wizard in the Calibrate tab needs the Mega.
+- Command line only: the wizard in the Machine tab needs the Mega.
 - The overload cutoff (`max_load`) and the travel calibration still need the Mega. Set the cutoff after the calibration has been stored.
 - It is only valid for the HX711 on the Pi, at the gain set in `config.toml`.
 
@@ -360,7 +369,7 @@ The camera code runs in its own Python environment (`.venv-camera`, from `instal
   4. strain and plots;
   5. both crack trackers.
 
-  Choose which ones in the Camera panel. **Process a folder…** or `vsbc camera process <folder>` runs them again.
+  Choose which ones in the Camera tab (After each test). **Process a folder…** (Results › DIC analysis) or `vsbc camera process <folder>` runs them again.
 - **Live DIC** during the test is off by default: on the Pi it competes with the camera for the CPU.
 - A recording without a test: **● Record** in the Camera tab (it goes to `Outputs/camera/<date>/`).
 
@@ -384,10 +393,10 @@ The **Results** tab (left side) shows a finished test or camera recording. **Vie
 
 ### The DIC tab
 
-The **DIC** tab (left side, after Results) runs DIC on a test you choose and shows what it produced. Pick the test at the top; the list shows only tests and recordings with camera frames, and how many frames already have DIC.
+**Results › DIC analysis** (left side) runs DIC on the test chosen in the Results tab's picker and shows what it produced. A test without camera frames says so. **Process a folder…** runs the Camera tab's "After each test" steps on any folder, and **Pause all** / **Resume all** holds every queued job.
 
 - **Run**:
-  - **What to run.** DIC, strain + plots, and the two crack trackers. The parameters (whole-test and full-rate frame steps, subset size and step, max displacement) start from the Camera panel's values. **Redo** analyses again frames that already have results.
+  - **What to run.** DIC, strain + plots, and the two crack trackers. The parameters (whole-test and full-rate frame steps, subset size and step, max displacement) start from the Camera tab's values. **Redo** analyses again frames that already have results.
   - **Checks.** A checklist runs before anything can start:
     - the camera images and reference frame 0 are there;
     - the ROI and seed are usable;
@@ -539,7 +548,7 @@ The two standalone sketches from before the redesign are kept in [`firmware/lega
 Limitations:
 - **Motion only**: no load cell, no load or travel-limit stops, no calibration in EEPROM.
 - **Not kept in sync** with `vsbc_firmware`: their rate limit and direction settings are constants in each sketch.
-- **The Pi app can't use them.** Connecting reports "No answer from vsbc_firmware", shows what the board printed (e.g. `Sketch: dual_stepper_mega`), and points to the Firmware tab. Upload `firmware/vsbc_firmware` again before using the app.
+- **The Pi app can't use them.** Connecting reports "No answer from vsbc_firmware", shows what the board printed (e.g. `Sketch: dual_stepper_mega`), and points to System › Firmware. Upload `firmware/vsbc_firmware` again before using the app.
 
 The same jobs in `vsbc_firmware`:
 
@@ -570,7 +579,7 @@ The same jobs in `vsbc_firmware`:
 
 **Camera settings** (exposure, crop, frame rate, RAM buffer, DIC parameters) are the USER SETTINGS in [`camera/capture_dic_live.py`](camera/capture_dic_live.py), not in the config file.
 
-**Machine calibration** (steps/mm, load scale, travel limits, overload cutoff, directions): stored on the Mega and changed from the Calibrate tab or with `SET` + `SAVE`. It is not in the config file.
+**Machine calibration** (steps/mm, load scale, travel limits, overload cutoff, directions): stored on the Mega and changed from the Machine tab (Calibration) or with `SET` + `SAVE`. It is not in the config file.
 
 **Firmware constants** ([`config.h`](firmware/vsbc_firmware/config.h)):
 - pins;
@@ -647,7 +656,7 @@ vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
 - [ ] **Hardware: set S2 to 5V on both drivers.** It ships at 24V.
 - [ ] **Choose the load cell and wire the SparkFun HX711 to the Mega** (VCC and VDD → 5V, DAT → D26, CLK → D27). Put the load cell's capacity in `config.toml`.
 - [ ] **If the HX711 is moved to the Pi, measure its timing on the Pi 5** with `vsbc loadcell`. The reader is tested against a fake GPIO only; the share of discarded readings on the real Pi, with the GUI running, is not known yet.
-- [ ] **Run the new firmware on the real Mega.** Version 2.3.0 (protocol 3: sample times to the microsecond, 2 s TARE/CAL averaging) compiles without warnings for `arduino:avr:mega` (avr-gcc 7.3, `-Wall -Wextra`). Upload it with `vsbc flash` or the Firmware tab: this app refuses firmware that speaks protocol 2. The app is tested against the simulator, but neither has run on the hardware.
+- [ ] **Run the new firmware on the real Mega.** Version 2.3.0 (protocol 3: sample times to the microsecond, 2 s TARE/CAL averaging) compiles without warnings for `arduino:avr:mega` (avr-gcc 7.3, `-Wall -Wextra`). Upload it with `vsbc flash` or System › Firmware: this app refuses firmware that speaks protocol 2. The app is tested against the simulator, but neither has run on the hardware.
 - [ ] **Try the GUI on the Pi 5** (tested on Windows).
 - [ ] **Set real travel limits and the overload cutoff** after the first calibration.
 - [ ] **Fit a hardware E-stop** that cuts motor power; optionally limit switches (pins in `config.h`).

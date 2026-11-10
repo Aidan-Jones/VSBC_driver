@@ -138,6 +138,7 @@ class ReadyCard(QtWidgets.QFrame):
         while self.rows.count():
             w = self.rows.takeAt(0).widget()
             if w is not None:
+                w.hide()                # gone now, not only when the event loop deletes it
                 w.deleteLater()
         self.fix_buttons = {}
         t = theme()
@@ -162,7 +163,7 @@ class ReadyCard(QtWidgets.QFrame):
                 text.setStyleSheet(f"QLabel {{ color: {t.muted}; }}")
             elif item.required:
                 text.setStyleSheet("QLabel { font-weight: bold; }")
-            self.rows.addWidget(mark_label, row, 0, Qt.AlignmentFlag.AlignTop)
+            self.rows.addWidget(mark_label, row, 0, Qt.AlignmentFlag.AlignVCenter)
             self.rows.addWidget(text, row, 1)
             if item.fix is not None and item.level != "ok":
                 b = button(item.fix_label or "Fix", lambda _c=False, k=item.key: self._fix(k),
