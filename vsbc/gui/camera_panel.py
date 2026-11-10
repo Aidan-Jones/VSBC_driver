@@ -1,4 +1,6 @@
-"""Camera tab on the right: recording, sync, DIC and post-processing settings.
+"""Camera tab on the right: what is recorded with each test and what runs after it (time sync,
+DIC parameters and the camera scripts are folded under Advanced). Running post-processing on a
+chosen test is in Results > DIC analysis.
 
 Camera settings proper (exposure, crop, frame rate, buffer, DIC parameters)
 are the USER SETTINGS in camera/capture_dic_live.py; the camera process sends
@@ -8,12 +10,12 @@ last for the session. config.toml [camera] sets the rest.
 
 from __future__ import annotations
 
+import html
 import logging
-from pathlib import Path
 
 from vsbc.camera.postprocess import Options
 from vsbc.camera.scripts import check_scripts, literal_settings
-from vsbc.gui.common import QtCore, QtGui, QtWidgets, button, flow, form_layout, narrow_combo, spin
+from vsbc.gui.common import QtCore, QtGui, QtWidgets, Section, button, flow, form_layout, narrow_combo, spin, theme
 from vsbc.gui.panels import Panel
 from vsbc.storage import disk_status, human_size
 
@@ -54,7 +56,7 @@ class CameraPanel(Panel):
         QtWidgets.QVBoxLayout(cam_box).addWidget(self.camera_info)
 
         # --- recording ---
-        rec_box = QtWidgets.QGroupBox("Recording")
+        rec_box = QtWidgets.QWidget()
         self.record_with_test = _check("Record with each test", c.record_with_test,
                                        "The camera starts with each test and stops when it ends.")
         self.save_mode = narrow_combo(QtWidgets.QComboBox())
@@ -84,6 +86,7 @@ class CameraPanel(Panel):
         self.estimate = QtWidgets.QLabel()
         self.estimate.setWordWrap(True)
         form = form_layout(rec_box)
+        form.setContentsMargins(0, 0, 0, 0)
         form.addRow(self.record_with_test)
         form.addRow("Save", self.save_mode)
         form.addRow("1:1 frames", self.divisor)
@@ -134,7 +137,7 @@ class CameraPanel(Panel):
         dform.addRow(self.dic_estimate)
 
         # --- after the test ---
-        post_box = QtWidgets.QGroupBox("After the test")
+        post_box = QtWidgets.QWidget()
         self.make_video = _check("Video (video.mp4)", c.make_video,
                                  "Its playback time equals data.csv's time_s; each frame shows the time and the load.")
         self.video_fps = spin(1.0, 120.0, c.video_fps, 1, 5.0, "fps")
@@ -143,25 +146,23 @@ class CameraPanel(Panel):
         self.strain_animation = _check("Strain animation", c.strain_animation)
         self.crack_image = _check("Crack tip: image tracker", c.crack_tip_image, "crack_tip_image.py")
         self.crack_opening = _check("Crack tip: opening method", c.crack_tip_opening, "crack_tip_opening.py")
-        self.process_last_btn = button("Process last test", self.process_last)
-        self.process_last_btn.setToolTip("Queue the last recording's post-processing again")
-        self.process_folder_btn = button("Process a folder...", self.process_folder)
-        self.pause_btn = button("Pause", self.toggle_pause)
-        self.cancel_btn = button("Cancel", self.cancel)
-        self.post_status = QtWidgets.QLabel()
-        self.post_status.setWordWrap(True)
         pform = form_layout(post_box)
+        pform.setContentsMargins(0, 0, 0, 0)
         pform.addRow(self.make_video)
         pform.addRow("Video frame rate", self.video_fps)
         for box in (self.run_dic, self.run_strain, self.strain_animation, self.crack_image, self.crack_opening):
             pform.addRow(box)
-        pform.addRow(flow(self.process_last_btn, self.process_folder_btn, self.pause_btn, self.cancel_btn))
-        pform.addRow(self.post_status)
+        where = QtWidgets.QLabel("To run these on a test now (again, or with other settings): "
+                                 "Results > DIC analysis.")
+        where.setProperty("role", "hint")
+        where.setWordWrap(True)
+        pform.addRow(where)
 
         # --- scripts ---
         scripts_box = QtWidgets.QGroupBox("Camera scripts")
         self.scripts_info = QtWidgets.QLabel()
         self.scripts_info.setWordWrap(True)
+        self.scripts_info.setTextFormat(QtCore.Qt.TextFormat.RichText)
         self.scripts_info.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         self.reload_btn = button("Reload scripts", self.reload_scripts)
         self.reload_btn.setToolTip("Restarts the camera process so it loads the files in the camera folder again")
@@ -172,9 +173,18 @@ class CameraPanel(Panel):
         slayout.addLayout(flow(self.reload_btn, self.open_scripts_btn))
         slayout.addWidget(self.check_btn)
 
+        advanced = QtWidgets.QWidget()
+        adv = QtWidgets.QVBoxLayout(advanced)
+        adv.setContentsMargins(0, 0, 0, 0)
+        for box in (sync_box, dic_box, scripts_box):
+            adv.addWidget(box)
+        self.recording_section = Section("Recording", rec_box, key="camera.recording")
+        self.after_section = Section("After each test", post_box, key="camera.after")
+        self.advanced_section = Section("Advanced: time sync, DIC parameters, scripts", advanced,
+                                        key="camera.advanced", expanded=False, framed=False)
         layout = QtWidgets.QVBoxLayout(self)
-        for box in (cam_box, rec_box, sync_box, dic_box, post_box, scripts_box):
-            layout.addWidget(box)
+        for w in (cam_box, self.recording_section, self.after_section, self.advanced_section):
+            layout.addWidget(w)
         layout.addStretch(1)
         self.apply_script_settings(literal_settings(win.config.camera_dir))
         self._mode_changed()
@@ -228,7 +238,17 @@ class CameraPanel(Panel):
         error = self.win.camera.hello.get("script_error") if self.win.camera else None
         if error:
             lines.append(f"✗ capture_dic_live.py does not load in the camera environment: {error}")
-        self.scripts_info.setText("\n".join(lines))
+        t = theme()
+
+        def coloured(line: str) -> str:
+            colour = t.success if line.startswith("✓") else t.danger if line.startswith("✗") else None
+            text = html.escape(line)
+            return f"<span style='color:{colour}'>{text}</span>" if colour else text
+
+        self.scripts_info.setText("<br>".join(coloured(line) for line in lines))
+
+    def restyle(self) -> None:
+        self.show_scripts()
 
     def recording_options(self, name: str = "") -> dict:
         live = None
@@ -338,32 +358,7 @@ class CameraPanel(Panel):
             warnings.append("Live DIC is on: on the Pi it competes with the camera and can cost frames.")
         return errors, warnings, True
 
-    # ----------------------------------------------------------- processing --
-    def process_last(self) -> None:
-        folder = self.win.last_camera_folder
-        if folder is None:
-            self.win.inform("Process", "No recording in this session yet. Use Process a folder.")
-            return
-        self.win.queue_postprocess(folder)
-
-    def process_folder(self) -> None:
-        start = str(self.win.config.tests_dir if self.win.config.tests_dir.is_dir() else self.win.config.output_dir)
-        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Test or recording folder", start)
-        if path:
-            self.win.queue_postprocess(Path(path))
-
-    def toggle_pause(self) -> None:
-        pp = self.win.postprocess
-        if pp.paused:
-            pp.resume()
-        else:
-            pp.pause()
-
-    def cancel(self) -> None:
-        if self.win.ask("Cancel", "Cancel the post-processing that is running and queued? "
-                                  "It can be run again later with Process a folder."):
-            self.win.postprocess.cancel()
-
+    # -------------------------------------------------------------- scripts --
     def reload_scripts(self) -> None:
         cam = self.win.camera
         if cam.recording is not None:
@@ -388,8 +383,3 @@ class CameraPanel(Panel):
         self.break_s.setEnabled(not recording and self.dump_on_break.isChecked())
         if not recording:
             self._mode_changed()
-        pp = self.win.postprocess
-        self.pause_btn.setText("Resume" if pp.paused else "Pause")
-        self.pause_btn.setEnabled(pp.busy)
-        self.cancel_btn.setEnabled(pp.busy)
-        self.post_status.setText(pp.summary())

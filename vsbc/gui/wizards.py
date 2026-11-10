@@ -363,7 +363,7 @@ class TravelCalibrationDialog(_Dialog):
             self.win.calibrate_panel.show_settings(settings)
             self.win.inform(self.windowTitle(),
                             f"Saved {r.new_steps_per_mm:.4f} steps/mm.\nRecord: {path}\n\n"
-                            "Set the position reference again (Jog tab).")
+                            "Set the position reference again (Machine tab).")
             self.accept()
 
         self._set_busy(True)

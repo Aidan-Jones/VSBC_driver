@@ -16,7 +16,7 @@
 Add --sim to any hardware command to use the built-in simulator (the GUI
 then simulates the camera too). Command-line values are in mm and N; the
 printed results use the display units ([units] in config.toml, or the
-Units tab's last choice).
+Display tab's last choice).
 """
 
 from __future__ import annotations
@@ -265,7 +265,7 @@ def _calibrate_load_no_mega(cfg: Config, seconds: float = 3.0, compression: bool
         "source": "pi", "gain": lc.gain, "applied": False, "firmware": None, "port": None,
     })
     print(f"Kept: it will be stored on the Mega at the next connection. Record: {path}")
-    print("The overload cutoff (max_load) is set on the Mega: check it in the Calibrate tab after connecting.")
+    print("The overload cutoff (max_load) is set on the Mega: check it in the Machine tab (Calibration) after connecting.")
     return 0
 
 

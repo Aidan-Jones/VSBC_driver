@@ -13,20 +13,14 @@ import logging
 import time
 
 from vsbc.camera.roi import Roi, outline, polygon_mask, rect_mask
-from vsbc.gui.common import FlowLayout, QtCore, QtWidgets, button, em, flow, high_speed_style, np, pg
+from vsbc.gui.common import (  # noqa: F401 - status_style is imported from here by the other views
+    NOTCH_COLOR, PLACEHOLDER_COLOR, ROI_COLOR, SEED_COLOR, FlowLayout, QtCore, QtWidgets, button, countdown_style,
+    em, flow, high_speed_style, np, pg, status_style, themed,
+)
 
 log = logging.getLogger(__name__)
 
-ROI_PEN = "#00c8ff"
-
-
-def status_style() -> str:
-    return (f"QLabel {{ font-family: Consolas, 'DejaVu Sans Mono', monospace; font-size: {max(11, em(0.85))}px; }}")
-
-
-def countdown_style() -> str:
-    return (f"QLabel {{ background: #7d3c98; color: white; font-size: {em(1.4)}px; font-weight: bold; "
-            f"padding: {em(0.4)}px; border-radius: {em(0.3)}px; }}")
+ROI_PEN = ROI_COLOR
 
 
 def dic_overlay(path):
@@ -81,12 +75,12 @@ class CameraView(QtWidgets.QWidget):
         self.zoom_btn.setToolTip("Full-resolution centre crop, for checking the focus")
         self.roi_btn = button("Edit ROI", self.edit_roi)
         self.marker_btn = button("Marker", self.marker)
-        self.record_btn = button("● Record", self.toggle_record)
+        self.record_btn = button("● Record", self.toggle_record, role="danger")
         self.record_btn.setToolTip("Record without a test (still-specimen noise checks, setup)")
         self.dic_map = QtWidgets.QCheckBox("DIC map")
         self.dic_map.setToolTip("Overlay the newest live-DIC vertical displacement (needs live DIC on)")
         self.dic_map.toggled.connect(lambda on: self.dic_item.setVisible(on))
-        self.hs_btn = button("⚡  HIGH SPEED: save every frame", self.toggle_high_speed, high_speed_style(), em(3))
+        self.hs_btn = button("⚡  HIGH SPEED: save every frame", self.toggle_high_speed, high_speed_style, em(3))
         self.hs_btn.setCheckable(True)
         self.hs_btn.setToolTip("Keeps the last seconds held in RAM and saves every frame from now until you turn "
                                "it off or the test ends (the camera and the test stop together). Press it when "
@@ -97,7 +91,7 @@ class CameraView(QtWidgets.QWidget):
                    self.record_btn, self.dic_map, self.hs_btn)
 
         self.countdown = QtWidgets.QLabel()
-        self.countdown.setStyleSheet(countdown_style())
+        themed(self.countdown, countdown_style)
         self.countdown.setWordWrap(True)
         self.countdown.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.countdown.hide()
@@ -114,17 +108,17 @@ class CameraView(QtWidgets.QWidget):
         self.vb.addItem(self.dic_item)
         self.roi_dots = pg.ScatterPlotItem(size=2, pen=None, brush=pg.mkBrush(0, 200, 255, 200))
         self.roi_dots.setZValue(10)
-        self.seed_item = pg.ScatterPlotItem(symbol="+", size=20, pen=pg.mkPen("#2ecc71", width=3), brush=None)
+        self.seed_item = pg.ScatterPlotItem(symbol="+", size=20, pen=pg.mkPen(SEED_COLOR, width=3), brush=None)
         self.seed_item.setZValue(11)
-        self.notch_item = pg.ScatterPlotItem(symbol="t1", size=18, pen=pg.mkPen("#ff4df0", width=2),
+        self.notch_item = pg.ScatterPlotItem(symbol="t1", size=18, pen=pg.mkPen(NOTCH_COLOR, width=2),
                                              brush=pg.mkBrush(255, 77, 240, 120))
         self.notch_item.setZValue(11)
-        self.notch_text = pg.TextItem("", color="#ff4df0", anchor=(0, 1))
+        self.notch_text = pg.TextItem("", color=NOTCH_COLOR, anchor=(0, 1))
         self.notch_text.setZValue(11)
         for item in (self.roi_dots, self.seed_item, self.notch_item, self.notch_text):
             self.vb.addItem(item)
         self.vb.scene().sigMouseClicked.connect(self._clicked)
-        self.placeholder = pg.TextItem("", color="#dddddd", anchor=(0.5, 0.5))
+        self.placeholder = pg.TextItem("", color=PLACEHOLDER_COLOR, anchor=(0.5, 0.5))
         self.vb.addItem(self.placeholder)
 
         self.edit_bar = QtWidgets.QWidget()
@@ -134,7 +128,7 @@ class CameraView(QtWidgets.QWidget):
         self.seed_btn = button("Place seed", lambda: self._arm("seed"))
         self.notch_btn = button("Place notch tip", lambda: self._arm("notch"))
         self.dir_btn = button("Crack grows →", self._toggle_direction)
-        self.save_roi_btn = button("Save ROI", self.save_roi)
+        self.save_roi_btn = button("Save ROI", self.save_roi, role="primary")
         self.cancel_btn = button("Cancel", self.stop_editing)
         for w in (self.rect_btn, self.poly_btn, self.seed_btn, self.notch_btn, self.dir_btn, self.save_roi_btn,
                   self.cancel_btn):

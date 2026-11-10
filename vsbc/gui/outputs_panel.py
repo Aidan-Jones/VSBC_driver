@@ -12,7 +12,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from vsbc.gui.common import QtCore, QtGui, QtWidgets, button, em, flow, narrow_combo
+from vsbc.gui.common import QtCore, QtGui, QtWidgets, button, em, flow, level_color, narrow_combo, stop_color, theme
 from vsbc.gui.panels import Panel
 from vsbc.storage import (
     copy_outputs, copy_size, delete_entry, delete_images, delete_old_logs, eject, human_size, list_outputs,
@@ -21,11 +21,7 @@ from vsbc.storage import (
 from vsbc.share import build_upload_zip, upload_dir
 
 COLUMNS = ("Started", "Specimen / name", "Result", "Size", "Camera images", "Video", "DIC", "Upload zip")
-LEVEL_STYLE = {
-    "ok": "QProgressBar::chunk { background: #1e8449; }",
-    "low": "QProgressBar::chunk { background: #d68910; }",
-    "critical": "QProgressBar::chunk { background: #c0392b; }",
-}
+RIGHT_ALIGNED = {3, 4, 6}         # sizes and counts
 
 
 class OutputsPanel(Panel):
@@ -64,16 +60,20 @@ class OutputsPanel(Panel):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setMinimumHeight(em(11))
         self.table.setMinimumWidth(100)        # scrolls sideways instead of widening the tab
+        self.table.setAlternatingRowColors(True)
+        self.table.setToolTip("Double-click a test to open it in the Results tab")
         self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.table.itemDoubleClicked.connect(lambda _item: self.view_selected())
 
-        self.refresh_btn = button("Refresh", self.refresh)
-        self.open_btn = button("Open folder", self.open_selected)
-        self.view_btn = button("View results", self.view_selected)
+        self.refresh_btn = button("Refresh", self.refresh, icon_name="reload")
+        self.open_btn = button("Open folder", self.open_selected, icon_name="folder")
+        self.view_btn = button("View results", self.view_selected, role="primary")
         self.view_btn.setToolTip("Open it in the Results tab (left)")
-        self.delete_images_btn = button("Delete camera images...", self.delete_images)
+        self.delete_images_btn = button("Delete camera images...", self.delete_images, role="danger",
+                                        icon_name="trash")
         self.delete_images_btn.setToolTip("Frees most of the space: keeps data.csv, the video, DIC results and plots")
-        self.delete_btn = button("Delete...", self.delete_selected)
-        self.logs_btn = button("Delete logs older than 30 days", self.delete_logs)
+        self.delete_btn = button("Delete...", self.delete_selected, role="danger", icon_name="trash")
+        self.logs_btn = button("Delete logs older than 30 days", self.delete_logs, role="danger")
         actions = flow(self.refresh_btn, self.view_btn, self.open_btn, self.delete_images_btn, self.delete_btn)
 
         upload_box = QtWidgets.QGroupBox("Upload to the cloud")
@@ -103,7 +103,7 @@ class OutputsPanel(Panel):
         self.include_images = QtWidgets.QCheckBox("Include the raw camera images")
         self.include_images.setToolTip("Usually most of the size. data.csv, the video, DIC results and plots "
                                        "are always copied.")
-        self.copy_btn = button("Copy the selected tests", self.copy_selected)
+        self.copy_btn = button("Copy the selected tests", self.copy_selected, role="primary", icon_name="drive")
         self.cancel_copy_btn = button("Cancel", self._copy_cancel.set)
         self.eject_btn = button("Eject", self.eject_drive)
         self.copy_progress = QtWidgets.QProgressBar()
@@ -139,7 +139,7 @@ class OutputsPanel(Panel):
         self.status = status
         self.usage.setValue(int(1000 * status.used_fraction))
         self.usage.setFormat(f"{100 * status.used_fraction:.0f} % used")
-        self.usage.setStyleSheet(LEVEL_STYLE[status.level])
+        self.usage.setStyleSheet(f"QProgressBar::chunk {{ background: {level_color(status.level)}; }}")
         text = status.text()
         bytes_per_test = self.win.camera_panel.test_bytes(self.win.camera_panel._test_duration_s()) \
             if self.win.camera is not None else 0.0
@@ -202,6 +202,15 @@ class OutputsPanel(Panel):
                 item = QtWidgets.QTableWidgetItem(text)
                 if col == 0:
                     item.setData(QtCore.Qt.ItemDataRole.UserRole, row)
+                if col in RIGHT_ALIGNED:
+                    item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
+                if col == 2:
+                    colour = theme().muted if e.kind == "recording" else stop_color(e.stop_reason) \
+                        if e.stop_reason else None
+                    if colour:
+                        item.setForeground(QtGui.QBrush(QtGui.QColor(colour)))
+                elif text == "—":
+                    item.setForeground(QtGui.QBrush(QtGui.QColor(theme().muted)))
                 self.table.setItem(row, col, item)
         self._selection_changed()
 
@@ -402,6 +411,11 @@ class OutputsPanel(Panel):
         if destination and not self._copying:
             self.win.run_async(lambda: eject(Path(destination)),
                                lambda message: (self.copy_text.setText(message), self.find_drives()), busy=False)
+
+    def restyle(self) -> None:
+        self._fill(self.entries)
+        if self.status is not None:
+            self.show_disk(self.status)
 
     def update_enabled(self, connected: bool, busy: bool) -> None:
         self.cancel_copy_btn.setEnabled(self._copying)

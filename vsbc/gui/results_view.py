@@ -24,8 +24,11 @@ from pathlib import Path
 from vsbc.camera import tiff
 from vsbc.camera.results import RunResults, estimate_crack_frame, load_results
 from vsbc.camera.roi import outline
-from vsbc.gui.camera_view import dic_overlay, status_style
-from vsbc.gui.common import FlowTabs, Qt, QtCore, QtGui, QtWidgets, button, em, flow, mono_font, np, pg
+from vsbc.gui.camera_view import dic_overlay
+from vsbc.gui.common import (
+    NOTCH_COLOR, PLACEHOLDER_COLOR, TIP_STYLES, FlowTabs, Qt, QtCore, QtGui, QtWidgets, button, em, flow,
+    mono_font, np, pg, status_style, style_plot, theme, themed_pen,
+)
 from vsbc.storage import list_outputs
 from vsbc.units import Units
 
@@ -35,7 +38,6 @@ CACHE_FRAMES = 64              # 0.77 MB each at 1920 × 400: about 50 MB
 PLAY_FPS = (5, 15, 30)
 CRACK_BRUSH = (192, 57, 43, 60)
 FULL_RATE_BRUSH = (243, 156, 18, 35)
-TIP_STYLES = {"image tracker": ("+", "#ff3b30"), "opening method": ("x", "#00e5ff"), "by hand": ("o", "#ffd60a")}
 
 
 class ScaledImage(QtWidgets.QLabel):
@@ -68,9 +70,12 @@ class ScaledImage(QtWidgets.QLabel):
 
 
 class ResultsView(QtWidgets.QWidget):
-    def __init__(self, win):
+    """Results > Overview. Its test picker (`top_bar`) is shared with DIC analysis (ResultsTab)."""
+
+    def __init__(self, win, own_bar: bool = True):
         super().__init__()
         self.win = win
+        self.on_chosen = None              # called with each folder chosen in the picker (ResultsTab)
         self.units: Units = win.units
         self.res: RunResults | None = None
         self.pos = 0                       # position in res.frames
@@ -91,10 +96,15 @@ class ResultsView(QtWidgets.QWidget):
         self.reload_btn = button("⟳", self.reload)
         self.reload_btn.setFixedWidth(em(3))
         self.reload_btn.setToolTip("Read the list of tests and this test's files again (new DIC results, plots)")
-        self.folder_btn = button("Open folder", self.open_folder)
-        self.video_btn = button("Play video", self.play_video)
+        self.folder_btn = button("Open folder", self.open_folder, icon_name="folder")
+        self.video_btn = button("Play video", self.play_video, icon_name="video")
         self.video_btn.setToolTip("video.mp4 in the system's video player")
-        top = QtWidgets.QHBoxLayout()
+        self.top_bar = QtWidgets.QWidget()
+        top = QtWidgets.QHBoxLayout(self.top_bar)
+        top.setContentsMargins(0, 0, 0, 0)
+        test_label = QtWidgets.QLabel("Test:")
+        test_label.setStyleSheet("QLabel { font-weight: bold; }")
+        top.addWidget(test_label)
         top.addWidget(self.choice, 1)
         top.addWidget(self.reload_btn)
         top.addWidget(self.folder_btn)
@@ -112,8 +122,9 @@ class ResultsView(QtWidgets.QWidget):
         self.inner.addTab(self.summary, "Summary")
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addLayout(top)
+        layout.setContentsMargins(0, 0, 0, 0) if not own_bar else layout.setContentsMargins(4, 4, 4, 4)
+        if own_bar:
+            layout.addWidget(self.top_bar)
         layout.addWidget(self.status)
         layout.addWidget(self.inner, 1)
 
@@ -134,14 +145,14 @@ class ResultsView(QtWidgets.QWidget):
         self.dic_item.setZValue(5)
         self.vb.addItem(self.dic_item)
         self.roi_dots = pg.ScatterPlotItem(size=2, pen=None, brush=pg.mkBrush(0, 200, 255, 160))
-        self.notch_item = pg.ScatterPlotItem(symbol="t1", size=16, pen=pg.mkPen("#ff4df0", width=2),
+        self.notch_item = pg.ScatterPlotItem(symbol="t1", size=16, pen=pg.mkPen(NOTCH_COLOR, width=2),
                                              brush=pg.mkBrush(255, 77, 240, 100))
         self.tip_items = {name: pg.ScatterPlotItem(symbol=sym, size=18, pen=pg.mkPen(color, width=3), brush=None)
                           for name, (sym, color) in TIP_STYLES.items()}
         for item in (self.roi_dots, self.notch_item, *self.tip_items.values()):
             item.setZValue(10)
             self.vb.addItem(item)
-        self.placeholder = pg.TextItem("", color="#dddddd", anchor=(0.5, 0.5))
+        self.placeholder = pg.TextItem("", color=PLACEHOLDER_COLOR, anchor=(0.5, 0.5))
         self.vb.addItem(self.placeholder)
 
         self.slider = QtWidgets.QSlider(Qt.Orientation.Horizontal)
@@ -177,17 +188,16 @@ class ResultsView(QtWidgets.QWidget):
         self.crack_text.setWordWrap(True)
 
         self.curve_plot = pg.PlotWidget()
-        self.curve_plot.setBackground("w")
         self.curve_plot.showGrid(x=True, y=True, alpha=0.3)
         self.curve_plot.setMinimumHeight(em(7))
         self.curve_plot.setMaximumHeight(em(12))
         self.curve_plot.setMouseEnabled(x=True, y=False)
-        self.curve = self.curve_plot.plot(pen=pg.mkPen("#c0392b", width=2))
+        self.curve = themed_pen(self.curve_plot.plot(), "load", 2)
         self.frame_dots = self.curve_plot.plot(pen=None, symbol="o", symbolSize=3, symbolPen=None,
                                                symbolBrush=pg.mkBrush(31, 95, 168, 120))
         self.break_marker = self.curve_plot.plot(pen=None, symbol="x", symbolSize=em(0.9),
-                                                 symbolPen=pg.mkPen("#000000", width=2))
-        self.now_line = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen("#1f5fa8", width=2))
+                                                 symbolPen=pg.mkPen("#e67e22", width=3))
+        self.now_line = themed_pen(pg.InfiniteLine(angle=90, movable=False), "accent", 2)
         self.curve_plot.addItem(self.now_line)
         self.regions: list = []
         self.curve_plot.scene().sigMouseClicked.connect(self._curve_clicked)
@@ -196,6 +206,7 @@ class ResultsView(QtWidgets.QWidget):
         for side in ("left", "bottom"):
             self.curve_plot.getAxis(side).setStyle(tickFont=tick_font)
             self.curve_plot.getAxis(side).enableAutoSIPrefix(False)
+        style_plot(self.curve_plot)
 
         layout = QtWidgets.QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -299,6 +310,11 @@ class ResultsView(QtWidgets.QWidget):
         folder = self.choice.currentData()
         if folder:
             self.load(Path(folder))
+            self._chosen(Path(folder))
+
+    def _chosen(self, folder: Path) -> None:
+        if self.on_chosen is not None:
+            self.on_chosen(folder)
 
     def show_folder(self, folder: Path) -> None:
         """Show this test (the Test tab's and the Outputs tab's "View results")."""
@@ -308,6 +324,11 @@ class ResultsView(QtWidgets.QWidget):
         else:
             self.choice.setCurrentIndex(self.choice.findData(folder))
             self.load(Path(folder))
+            self._chosen(Path(folder))
+
+    def current_folder(self) -> Path | None:
+        folder = self.choice.currentData()
+        return Path(folder) if folder else None
 
     def reload(self) -> None:
         self._stale = True
@@ -671,9 +692,9 @@ class ResultsView(QtWidgets.QWidget):
             parts.append("tip: " + ", ".join(tips))
         text = "  ·  ".join(parts)
         if crack is not None and crack.estimate == pos:
-            text += "  <b style='color:#c0392b'>★ CRACK (estimated frame)</b>"
+            text += f"  <b style='color:{theme().danger}'>★ CRACK (estimated frame)</b>"
         elif crack is not None and crack.source == "break" and crack.contains(pos):
-            text += "  <b style='color:#c0392b'>CRACK</b>"
+            text += f"  <b style='color:{theme().danger}'>CRACK</b>"
         return text
 
     def _draw_roi(self) -> None:
@@ -755,3 +776,51 @@ class ResultsView(QtWidgets.QWidget):
         """Slow GUI tick: keep the post-processing note current."""
         if self.res is not None and self._loading is None:
             self.status.setText(self._status_text())
+
+
+class ResultsTab(QtWidgets.QWidget):
+    """The Results tab: one test picker over Overview (frames, plots, summary) and DIC analysis
+    (run DIC, displacement, strain, crack tip, log) of the chosen test."""
+
+    def __init__(self, win):
+        super().__init__()
+        from vsbc.gui.dic_view import DicView    # dic_view imports this module's neighbours
+
+        self.win = win
+        self.overview = ResultsView(win, own_bar=False)
+        self.dic = DicView(win, linked=True)
+        self.overview.on_chosen = self.dic.show_folder
+        self.inner = FlowTabs()
+        self.inner.addTab(self.overview, "Overview")
+        self.inner.addTab(self.dic, "DIC analysis")
+        self.inner.currentChanged.connect(lambda _i: self.on_shown())
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.addWidget(self.overview.top_bar)
+        layout.addWidget(self.inner, 1)
+
+    def on_shown(self) -> None:
+        """The tab (or one of its two pages) was opened: the picker always reads the list."""
+        self.overview.on_shown()
+        if self.inner.currentWidget() is self.dic:
+            folder = self.overview.current_folder()
+            if folder is not None:
+                self.dic.show_folder(folder)
+            self.dic.on_shown()
+
+    def set_available(self, on: bool) -> None:
+        self.overview.set_available(on)
+        self.dic.set_available(on)
+
+    def mark_stale(self, newest=None) -> None:
+        self.overview.mark_stale(newest)
+        self.dic.mark_stale(newest)
+
+    def refresh_status(self) -> None:
+        if self.inner.currentWidget() is self.overview:
+            self.overview.refresh_status()
+        self.dic.refresh_status()
+
+    def apply_units(self, units) -> None:
+        self.overview.apply_units(units)
+        self.dic.apply_units(units)

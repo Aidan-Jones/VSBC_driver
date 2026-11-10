@@ -125,9 +125,9 @@ class PullTestRunner:
         if not st.loadcell_ok:
             errors.append("Load cell not responding.")
         elif not st.calibrated:
-            errors.append("Load cell not calibrated (Calibrate tab).")
+            errors.append("Load cell not calibrated (Machine tab > Calibration).")
         if not st.referenced:
-            errors.append("Position not referenced: set zero at the reference position (Jog tab).")
+            errors.append("Position not referenced: set zero at the reference position (Machine tab).")
         if st.motors != "AB":
             errors.append("Both motors must be selected (motor select: AB).")
         rate = mm_min_to_mm_s(s.rate_mm_min)
@@ -153,7 +153,7 @@ class PullTestRunner:
         warnings = []
         max_load = settings.get("max_load", 0.0)
         if max_load <= 0:
-            warnings.append("The machine overload cutoff (max_load) is off. Set it under Calibrate > Limits.")
+            warnings.append("The machine overload cutoff (max_load) is off. Set it under Machine > Calibration.")
         if s.break_drop_pct <= 0 or s.break_min_n <= 0:
             warnings.append("Break detection is off: the test runs until the max extension or a load limit.")
         if s.stop_load_n > 0 and max_load > 0 and s.stop_load_n > max_load:

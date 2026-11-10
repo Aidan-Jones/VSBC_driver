@@ -8,6 +8,7 @@ The camera process's events arrive the same way (CameraClient -> post).
 
 from __future__ import annotations
 
+import html
 import logging
 import math
 import queue
@@ -21,21 +22,24 @@ from vsbc.analysis import tension_threshold_n
 from vsbc.config import REPO_ROOT, Config
 from vsbc.gui.calibration_panel import CalibratePanel
 from vsbc.gui.common import (
-    FlowTabs, QShortcut, Qt, QtCore, QtGui, QtWidgets, apply_style, banner_style, button, caption_style, em,
-    exec_app, narrow_combo, readout_style, screen_size, stop_style,
+    SAFETY_STOPS, FlowTabs, QShortcut, Qt, QtCore, QtGui, QtWidgets, Section, StatCard, apply_style, banner_style,
+    button, dot, em, exec_app, level_color, narrow_combo, pill_style, reveal, screen_size, set_role, state_color,
+    stop_style, theme, themed,
 )
+from vsbc.gui.common import set_theme as set_app_theme
 from vsbc.gui.outputs_panel import OutputsPanel
 from vsbc.gui.panels import ConsolePanel, FirmwarePanel, JogPanel, TestPanel
+from vsbc.gui.machine_panel import MachinePanel, SystemPanel
 from vsbc.gui.plots import LivePlots
-from vsbc.gui.dic_view import DicView
-from vsbc.gui.results_view import ResultsView
+from vsbc.gui.readiness import readiness
+from vsbc.gui.results_view import ResultsTab
 from vsbc.gui.units_panel import UnitsPanel
 from vsbc.link import DeviceError, LinkClosed, list_ports
 from vsbc.machine import FirmwareMismatch, Machine
 from vsbc.procedures import PreflightError, PullTestRunner
 from vsbc.protocol import STATE_NAMES, Event, Reply, Sample
 from vsbc.storage import disk_status, human_size
-from vsbc.units import Units, clear_saved_units, effective_units, save_units
+from vsbc.units import Units, clear_saved_units, effective_units, load_preferences, save_preferences, save_units
 
 log = logging.getLogger(__name__)
 
@@ -49,9 +53,20 @@ STOP_REASONS = {
     "LIMIT": "limit switch",
     "ESTOP": "E-stop input",
 }
-SAFETY_STOPS = {"OVERLOAD", "LOADCELL", "WATCHDOG", "TIMEOUT", "LIMIT", "ESTOP"}
 STORAGE_CHECK_MS = 30_000
-TENSION_WARNING = ("Tension is reading negative: the load-cell sign is reversed (Calibrate tab > Flip load sign). "
+# Warnings that stay in the banner (and colour it red) until their cause is gone: the × does not hide them.
+CRITICAL_WARNINGS = ("almost full", "stopped recording", "Connection lost", "Load cell stopped responding")
+CAMERA_STATE_COLORS = {"preview": "success", "recording": "danger", "finishing": "warning", "starting": "warning",
+                       "error": "danger"}
+STATUS_COLORS = {"info": "text", "success": "success", "warning": "warning", "danger": "danger"}
+# Replies after which the Mega's state may have changed: read STATUS again for the Ready checklist.
+STATUS_AFTER = {"ZERO", "TARE", "CAL", "MOTORS", "SET", "SAVE", "DEFAULTS"}
+STATUS_POLL_S = 2.0
+
+
+def is_critical(warning: str) -> bool:
+    return any(word in warning for word in CRITICAL_WARNINGS)
+TENSION_WARNING = ("Tension is reading negative: the load-cell sign is reversed (Machine tab > Calibration > Flip load sign). "
                    "Break detection cannot arm until it is fixed.")
 
 
@@ -75,6 +90,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ready_seen = False
         self._saved_position = False
         self._warnings: list[str] = []
+        self._dismissed: set[str] = set()       # warnings hidden with the banner's ×
+        self._conn = ("Not connected", "muted")
+        self._shown_state: str | None = None
+        self.disabled_reason = "Connect to the machine first (Connect, top left)."
+        self.readiness_items: list = []         # the Ready checklist (vsbc.gui.readiness), on the slow tick
+        self._status_due = False                # read STATUS soon (after ZERO, TARE, ...)
+        self._status_polling = False
+        self._last_status_poll = 0.0
         self._tension = {"count": 0, "max": -math.inf, "prev": -math.inf, "warned": False}
 
         # Camera (the Camera tab), post-processing and the region of interest
@@ -96,6 +119,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("VSBC Tensile Tester")
         self._build()
+        self._restore_layout()
+        self._restore_sections()
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(max(10, int(1000 / config.gui.refresh_hz)))
@@ -123,49 +148,72 @@ class MainWindow(QtWidgets.QMainWindow):
         refresh = button("⟳", self.refresh_ports)
         refresh.setFixedWidth(em(3))
         refresh.setToolTip("Rescan serial ports")
-        self.connect_btn = button("Connect", self.toggle_connection)
-        self.conn_label = QtWidgets.QLabel("Not connected")
+        self.connect_btn = button("Connect", self.toggle_connection, role="primary")
+        self.conn_label = QtWidgets.QLabel()
         self.conn_label.setWordWrap(True)
-        self.stop_btn = button("STOP", self.stop_all, stop_style())
+        self.conn_label.setTextFormat(Qt.TextFormat.RichText)
+        self._show_connection(*self._conn)
+        self.stop_btn = button("STOP", self.stop_all, stop_style)
         self.stop_btn.setMinimumSize(em(8), em(3.4))
         self.stop_btn.setToolTip("Stop the motors now (Esc or Space)")
         top.addWidget(self.port_combo)
         top.addWidget(refresh)
         top.addWidget(self.connect_btn)
         top.addWidget(self.conn_label, 1)
+        # "✓ Ready" or "2 steps before a test": opens the checklist on the Test tab.
+        self.ready_chip = button("", self.show_checklist, tip="What is still to do before a test")
+        self.ready_chip.hide()
+        top.addWidget(self.ready_chip)
         top.addWidget(self.stop_btn)
         root.addLayout(top)
 
+        # Readout cards: the top edge has the colour of the matching plot curve.
         readouts = QtWidgets.QHBoxLayout()
-        self.load_label = self._readout(readouts, "LOAD")
-        self.pos_label = self._readout(readouts, "POSITION")
-        self.ext_label = self._readout(readouts, "EXTENSION")
-        self.state_label = self._readout(readouts, "STATE")
+        readouts.setSpacing(em(0.5))
+        self.load_label = self._readout(readouts, "Load", "load")
+        self.pos_label = self._readout(readouts, "Position", "position")
+        self.ext_label = self._readout(readouts, "Extension", "extension")
+        self.state_card = StatCard("State", "muted")
+        self.state_label = self.state_card.value
+        self.state_card.layout().setAlignment(self.state_label, Qt.AlignmentFlag.AlignLeft)
+        readouts.addWidget(self.state_card, 1)
         root.addLayout(readouts)
 
-        self.banner = QtWidgets.QLabel()
-        self.banner.setStyleSheet(banner_style())
-        self.banner.setWordWrap(True)
+        self.banner = QtWidgets.QFrame()
+        self.banner.setObjectName("banner")
+        self.banner_text = QtWidgets.QLabel()
+        self.banner_text.setWordWrap(True)
+        self.banner_text.setTextFormat(Qt.TextFormat.RichText)
+        self.banner_close = button("×", self.dismiss_warnings,
+                                   tip="Hide these warnings. They come back if they happen again; "
+                                       "red ones stay until fixed.")
+        self.banner_close.setFixedWidth(em(2.4))
+        banner_row = QtWidgets.QHBoxLayout(self.banner)
+        banner_row.setContentsMargins(em(0.6), em(0.25), em(0.2), em(0.25))
+        banner_row.addWidget(self.banner_text, 1)
+        banner_row.addWidget(self.banner_close, 0, Qt.AlignmentFlag.AlignTop)
+        themed(self.banner, banner_style)
         self.banner.hide()
         root.addWidget(self.banner)
 
-        splitter = QtWidgets.QSplitter(Qt.Orientation.Horizontal)
-        self.plots = LivePlots(self.config.gui.time_window_s, units=self.units)
+        self.splitter = splitter = QtWidgets.QSplitter(Qt.Orientation.Horizontal)
+        # Left: Camera (the default) · Live (the two live plots) · Results (Overview and DIC analysis of a test).
+        self.left_tabs = FlowTabs()
         if self.camera is not None:
             from vsbc.gui.camera_view import CameraView
 
             self.camera_view = CameraView(self)
-            self.plots.insertTab(0, self.camera_view, "Camera")      # the default tab
-            self.plots.setCurrentIndex(0)
-        # Results: a finished test's frames, crack frames, plots and summary (not during a test).
-        self.results_view = ResultsView(self)
-        self.results_index = self.plots.addTab(self.results_view, "Results")
-        # DIC: choose a test, check it, run DIC, and view displacement, strain and crack tips.
-        self.dic_view = DicView(self)
-        self.dic_index = self.plots.addTab(self.dic_view, "DIC")
+            self.left_tabs.addTab(self.camera_view, "Camera")
+        self.plots = LivePlots(self.config.gui.time_window_s, units=self.units)
+        self.left_tabs.addTab(self.plots, "Live")
+        # Not during a test: reading frames would compete with the camera for the disk.
+        self.results_tab = ResultsTab(self)
+        self.results_view, self.dic_view = self.results_tab.overview, self.results_tab.dic
+        self.results_index = self.left_tabs.addTab(self.results_tab, "Results")
+        self.left_tabs.setCurrentIndex(0)
         self._results_available = True
-        self.plots.currentChanged.connect(self._plot_tab_changed)
-        splitter.addWidget(self.plots)
+        self.left_tabs.currentChanged.connect(self._plot_tab_changed)
+        splitter.addWidget(self.left_tabs)
         self.tabs = FlowTabs()          # its tab buttons wrap onto a second row on a narrow screen
         self.test_panel = TestPanel(self)
         self.jog_panel = JogPanel(self)
@@ -176,7 +224,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.firmware_panel = FirmwarePanel(self)
         self.panels = [self.test_panel, self.jog_panel, self.calibrate_panel, self.outputs_panel, self.units_panel,
                        self.console, self.firmware_panel]
+        # Right, in the order of the work: Test · Machine · Camera · Outputs · System.
+        self.machine_panel = MachinePanel(self)
+        self.system_panel = SystemPanel(self)
         self.tabs.addTab(self._scroll(self.test_panel), "Test")
+        self.tabs.addTab(self._scroll(self.machine_panel), "Machine")
         if self.camera is not None:
             from vsbc.gui.camera_panel import CameraPanel
 
@@ -184,11 +236,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.panels.append(self.camera_panel)
             self.tabs.addTab(self._scroll(self.camera_panel), "Camera")
         self.outputs_index = self.tabs.addTab(self._scroll(self.outputs_panel), "Outputs")
-        self.tabs.addTab(self._scroll(self.jog_panel), "Jog")
-        self.tabs.addTab(self._scroll(self.calibrate_panel), "Calibrate")
-        self.tabs.addTab(self._scroll(self.units_panel), "Units")
-        self.tabs.addTab(self.console, "Console")
-        self.tabs.addTab(self._scroll(self.firmware_panel), "Firmware")
+        self.tabs.addTab(self.system_panel, "System")
         self.tabs.currentChanged.connect(self._tab_changed)
         splitter.addWidget(self.tabs)
         splitter.setStretchFactor(0, 3)
@@ -199,7 +247,19 @@ class MainWindow(QtWidgets.QMainWindow):
         # Wide enough for every tab's controls, so none of them scrolls sideways.
         self.tabs.setMinimumWidth(min(self._tabs_min_width(), int(0.6 * screen_size(self)[0])))
         root.addWidget(splitter, 1)
-        self.statusBar()
+
+        # Status bar, right side: post-processing, camera and disk at a glance.
+        self.post_status = QtWidgets.QLabel()
+        self.camera_status = QtWidgets.QLabel()
+        self.disk_status = QtWidgets.QLabel()
+        for label in (self.post_status, self.camera_status, self.disk_status):
+            label.setTextFormat(Qt.TextFormat.RichText)
+            label.setContentsMargins(em(0.5), 0, em(0.5), 0)
+            self.statusBar().addPermanentWidget(label)
+        self.post_status.linkActivated.connect(lambda _link: self.show_dic())
+        self.post_status.setToolTip("Open Results > DIC analysis")
+        self.post_status.hide()
+        self.camera_status.setVisible(self.camera is not None)
 
         for key in ("Esc", "Space"):
             shortcut = QShortcut(QtGui.QKeySequence(key), self)
@@ -208,16 +268,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.refresh_ports()
 
     @staticmethod
-    def _readout(layout, caption: str) -> QtWidgets.QLabel:
-        box = QtWidgets.QVBoxLayout()
-        cap = QtWidgets.QLabel(caption)
-        cap.setStyleSheet(caption_style())
-        value = QtWidgets.QLabel("—")
-        value.setStyleSheet(readout_style())
-        box.addWidget(cap)
-        box.addWidget(value)
-        layout.addLayout(box, 1)
-        return value
+    def _readout(layout, caption: str, color: str) -> QtWidgets.QLabel:
+        card = StatCard(caption, color)
+        layout.addWidget(card, 1)
+        return card.value
 
     @staticmethod
     def _scroll(widget) -> QtWidgets.QScrollArea:
@@ -245,19 +299,96 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _plot_tab_changed(self, index: int) -> None:
         if index == self.results_index:
-            self.results_view.on_shown()
-        elif index == self.dic_index:
-            self.dic_view.on_shown()
+            self.results_tab.on_shown()
 
     def show_results(self, folder: Path) -> None:
-        """Open a test (or camera recording) in the Results tab."""
+        """Open a test (or camera recording) in Results > Overview."""
         if not self._results_available:
             self.warn("Results", "The Results tab is not available while a test or a camera recording runs.")
             return
-        self.plots.blockSignals(True)            # show_folder loads it; on_shown need not load it again
-        self.plots.setCurrentIndex(self.results_index)
-        self.plots.blockSignals(False)
+        for tabs, page in ((self.left_tabs, self.results_tab), (self.results_tab.inner, self.results_view)):
+            tabs.blockSignals(True)              # show_folder loads it; on_shown need not load it again
+            tabs.setCurrentWidget(page)
+            tabs.blockSignals(False)
         self.results_view.show_folder(Path(folder))
+
+    def show_dic(self, folder: Path | None = None) -> None:
+        """Open Results > DIC analysis (for `folder`, else the test chosen there)."""
+        if not self._results_available:
+            self.warn("Results", "The Results tab is not available while a test or a camera recording runs.")
+            return
+        if folder is not None:
+            self.show_results(folder)
+        reveal(self.dic_view, glow=False)
+
+    def reveal(self, widget) -> None:
+        """Bring a control into view wherever it is (tabs, folded sections, scrolling) and flash it."""
+        if widget is self.dic_view or self.dic_view.isAncestorOf(widget):
+            if not self._results_available:
+                return
+        reveal(widget)
+
+    def show_checklist(self) -> None:
+        reveal(self.test_panel.ready)
+
+    # ------------------------------------------------------------- readiness --
+    def refresh_readiness(self) -> None:
+        """The Ready checklist (Test tab), Start's hint and the top bar's chip."""
+        try:
+            items = readiness(self)
+        except Exception:  # noqa: BLE001 - never break the window over the checklist
+            log.exception("readiness check failed")
+            return
+        self.readiness_items = items
+        self.test_panel.ready.show_items(items)
+        todo = sum(1 for i in items if i.required)
+        if not self.machine.connected:
+            self.ready_chip.hide()
+            return
+        state = "warning" if todo else "success"
+        self.ready_chip.setText(f"●  {todo} step{'s' if todo > 1 else ''} before a test" if todo else "✓  Ready")
+        themed(self.ready_chip, lambda c=state: (
+            f"QPushButton {{ color: {getattr(theme(), c)}; border: 2px solid {getattr(theme(), c)};"
+            f" font-weight: bold; border-radius: {em(1.2)}px; padding: 0 {em(0.8)}px; }}"))
+        self.ready_chip.show()
+
+    def poll_status(self) -> None:
+        """Read STATUS again soon (the checklist): after a command that may have changed the state."""
+        self._status_due = True
+
+    def _maybe_poll_status(self, now: float) -> None:
+        m = self.machine
+        if not m.connected or self._status_polling or self.runner is not None or self.busy_ops:
+            return
+        s = m.latest
+        if (s is not None and s.moving) or (not self._status_due and now - self._last_status_poll < STATUS_POLL_S):
+            return
+        self._status_polling, self._status_due, self._last_status_poll = True, False, now
+
+        def done(_status):
+            self._status_polling = False
+            self.refresh_readiness()
+
+        def failed(_exc):
+            self._status_polling = False
+
+        self.run_async(m.status, done, failed, busy=False)
+
+    def _restore_sections(self) -> None:
+        """Folded or open, as the operator left each section."""
+        states = self._gui_prefs().get("sections")
+        states = states if isinstance(states, dict) else {}
+        for section in self.findChildren(Section):
+            if section.key and isinstance(states.get(section.key), bool):
+                section.set_expanded(states[section.key], emit=False)
+            section.toggled.connect(lambda on, key=section.key: self._save_section(key, on))
+
+    def _save_section(self, key: str, on: bool) -> None:
+        if key:
+            states = self._gui_prefs().get("sections")
+            states = dict(states) if isinstance(states, dict) else {}
+            states[key] = on
+            self._save_gui(sections=states)
 
     # ------------------------------------------------------- dialogs / status --
     def ask(self, title: str, text: str) -> bool:
@@ -278,15 +409,35 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.interactive:
             QtWidgets.QMessageBox.warning(self, title, text)
 
-    def status(self, text: str) -> None:
+    def status(self, text: str, level: str = "info") -> None:
+        """A status-bar message for 15 s; `level` (info, success, warning, danger) colours it."""
+        color = getattr(theme(), STATUS_COLORS.get(level, "text"))
+        self.statusBar().setStyleSheet(f"QStatusBar {{ color: {color}; }}")
         self.statusBar().showMessage(text, 15000)
 
     def show_warnings(self, warnings: list[str]) -> None:
+        """The banner: one line per warning; red when any of them is critical."""
         self._warnings = list(warnings)
-        self.banner.setText("   •   ".join(self._warnings))
-        critical = any("almost full" in w or "stopped recording" in w for w in self._warnings)
-        self.banner.setStyleSheet(banner_style(critical))
-        self.banner.setVisible(bool(self._warnings))
+        self._dismissed &= set(self._warnings)          # a warning that went away may come back later
+        shown = [w for w in self._warnings if w not in self._dismissed or is_critical(w)]
+        lines = [f"⚠&nbsp;<b>{html.escape(w)}</b>" if is_critical(w) else f"⚠&nbsp;{html.escape(w)}"
+                 for w in shown]
+        self.banner_text.setText("<br>".join(lines))
+        critical = any(is_critical(w) for w in shown)
+        themed(self.banner, lambda c=critical: banner_style(c))
+        self.banner_close.setVisible(not all(is_critical(w) for w in shown))
+        self.banner.setVisible(bool(shown))
+
+    def dismiss_warnings(self) -> None:
+        """The banner's ×: hide the warnings showing now (not the critical ones)."""
+        self._dismissed |= {w for w in self._warnings if not is_critical(w)}
+        self.show_warnings(self._warnings)
+
+    def _show_connection(self, text: str, color: str) -> None:
+        """The top bar: a coloured dot (grey off, amber connecting, green Mega, purple simulator) and the text."""
+        self._conn = (text, color)
+        self.conn_label.setText(dot(getattr(theme(), color), text))
+        set_role(self.connect_btn, None if self.machine.connected else "primary")
 
     def _add_warning(self, text: str) -> None:
         if text not in self._warnings:
@@ -361,9 +512,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.postprocess.poll()
                 if self.camera is not None:
                     self.camera_panel.update_estimate()
-                if self.plots.currentWidget() is self.results_view:
-                    self.results_view.refresh_status()
-                self.dic_view.refresh_status()
+                self.results_tab.refresh_status()
+                self._update_status_bar()
+                self._maybe_poll_status(now)
+                self.refresh_readiness()
             except Exception:  # noqa: BLE001
                 log.exception("post-processing update failed")
         self._update_readouts()
@@ -379,6 +531,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._check_tension(msg.load_n, ext)
             self.plots.add_sample(msg, ext)
         elif isinstance(msg, Reply):
+            if msg.ok and msg.command in STATUS_AFTER:
+                self.poll_status()
             if msg.ok and msg.command == "RUN":
                 self.test_start_pos = msg.number("from")
                 self.last_ext = 0.0
@@ -415,7 +569,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     text += f", peak {u.format_force(peak)}"
             if reason in STOP_REASONS:
                 text += f": {STOP_REASONS[reason]}"
-            self.status(text)
+            self.status(text, "danger" if reason in SAFETY_STOPS else "info")
             self.console.note(text)
             if reason in SAFETY_STOPS:
                 self._add_warning(f"Last move stopped: {STOP_REASONS[reason]}.")
@@ -427,13 +581,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._remove_warnings("Load cell not responding")
                 self._remove_warnings("Load cell stopped responding")
         elif ev.name == "OVERLOAD":
-            self.status(f"Overload: {u.format_force(ev.number('load'), 1)}. Back the load off.")
+            self.status(f"Overload: {u.format_force(ev.number('load'), 1)}. Back the load off.", "danger")
         elif ev.name == "READY":
             if self._ready_seen and self.machine.connected:
                 # The Mega reset while connected (power glitch, reset button): it forgot the
                 # stream/watchdog settings and its position.
                 self.console.note("The Mega reset.")
-                self._add_warning("The Mega reset: set the position reference again (Jog tab).")
+                self._add_warning("The Mega reset: set the position reference again (Machine tab).")
                 self.run_async(self.machine.reconfigure_after_reset, self.calibrate_panel.show_settings, busy=False)
         elif ev.name == "DISCONNECTED":
             self._add_warning(f"Connection lost: {ev.fields.get('error', '')}")
@@ -479,13 +633,14 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._connecting = True
         self._ready_seen = False
-        self.conn_label.setText("Connecting...")
+        self._show_connection("Connecting...", "warning")
 
         def work():
             info = self.machine.connect(None if sim else port, sim=sim)
             if self.machine.sim is not None and not self.machine.status().referenced:
                 self.machine.zero()   # the simulator starts unreferenced; its zero is as good as any
                 self.machine.warnings = [w for w in self.machine.warnings if "referenced" not in w]
+                self.machine.status()  # the checklist reads the referenced flag from the last STATUS
             return info
 
         self.run_async(work, self._on_connected, self._on_connect_failed, busy=False)
@@ -495,26 +650,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ready_seen = True
         self.connect_btn.setText("Disconnect")
         where = "simulator" if info.simulated else self.machine.port
-        self.conn_label.setText(f"{where} · {info.name} {info.version}")
+        self._show_connection(f"{where} · {info.name} {info.version}", "purple" if info.simulated else "success")
         self._saved_position = self.machine.saved_position() is not None
         for panel in self.panels:
             panel.on_connected()
         self.show_warnings(self.machine.warnings)
         self.check_storage()
         self.console.note(f"connected to {where}: {info.name} {info.version} (protocol {info.protocol})")
-        self.status(f"Connected to {where}")
+        self.status(f"Connected to {where}", "success")
+        self.refresh_readiness()
         if not info.simulated and self._saved_position and any("referenced" in w for w in self.machine.warnings):
             self.jog_panel.restore()   # asks first
 
     def _on_connect_failed(self, exc: BaseException) -> None:
         self._connecting = False
-        self.conn_label.setText("Not connected")
+        self._show_connection("Not connected", "muted")
         text = str(exc) or type(exc).__name__
         if isinstance(exc, FirmwareMismatch):
             if exc.banner:
                 text += "\n\nThe board printed:\n" + "\n".join(exc.banner[:6])
-            text += "\n\nThe Firmware tab can upload the right firmware."
-            self.tabs.setCurrentWidget(self.firmware_panel)
+            text += "\n\nSystem > Firmware can upload the right firmware."
+            self.reveal(self.firmware_panel)
         self.warn("Could not connect", text)
 
     def disconnect_machine(self) -> None:
@@ -531,10 +687,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ready_seen = False
         self._saved_position = self.machine.saved_position() is not None
         self.connect_btn.setText("Connect")
-        self.conn_label.setText("Not connected")
+        self._show_connection("Not connected", "muted")
         self._remove_warnings("referenced")
         self.firmware_panel.update_info()
         self.status("Disconnected")
+        self.refresh_readiness()
 
     # ------------------------------------------------------------------ STOP --
     def stop_all(self) -> None:
@@ -545,7 +702,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.machine.stop()
             except LinkClosed:
                 pass
-            self.status("STOP sent")
+            self.status("STOP sent", "warning")
 
     # ------------------------------------------------------------------ test --
     def start_test(self) -> None:
@@ -601,7 +758,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.plots.mark_peak(s.extension_at_peak_mm, s.peak_load_n)
         if any("sign is reversed" in w for w in result.warnings):
             self._add_warning(TENSION_WARNING)
-        self.status(f"Test finished ({result.stop_reason}). Files: {result.folder}")
+        self.status(f"Test finished ({result.stop_reason}). Files: {result.folder}",
+                    "danger" if result.aborted or result.stop_reason in SAFETY_STOPS else "success")
         if result.folder is not None and (result.folder / "camera").is_dir() and self.camera is not None:
             self.last_camera_folder = result.folder / "camera"
             self._pending_sync = result.folder
@@ -895,6 +1053,8 @@ class MainWindow(QtWidgets.QMainWindow):
         except OSError:
             return
         self.outputs_panel.show_disk(status)
+        self.disk_status.setText(dot(level_color(status.level), f"Disk: {human_size(status.free)} free"))
+        self.disk_status.setToolTip(status.text())
         self._remove_warnings("Storage")
         if status.level != "ok":
             what = "almost full" if status.level == "critical" else "low"
@@ -916,6 +1076,62 @@ class MainWindow(QtWidgets.QMainWindow):
             panel.apply_units(units)
         self.status(f"Units: {units.force}, {units.length}")
 
+    def set_theme(self, name: str, remember: bool = True) -> None:
+        """Light or dark (Display tab), now and (remember) next time."""
+        set_app_theme(QtWidgets.QApplication.instance(), name)
+        if remember:
+            self._save_gui(theme=theme().name)
+        self.plots.restyle()
+        self.show_warnings(self._warnings)
+        self._show_connection(*self._conn)
+        self._shown_state = None
+        self.check_storage()
+        self._update_status_bar()
+        for panel in self.panels:
+            panel.restyle()
+
+    # ---------------------------------------------------------- remembering --
+    def _gui_prefs(self) -> dict:
+        data = load_preferences(self.config.preferences_file).get("gui")
+        return data if isinstance(data, dict) else {}
+
+    def _save_gui(self, **updates) -> None:
+        data = self._gui_prefs()
+        data.update(updates)
+        save_preferences(self.config.preferences_file, {"gui": data})
+
+    @staticmethod
+    def _tab_name(tabs, index: int) -> str:
+        return tabs.tabText(index).replace(" ⚠", "") if 0 <= index < tabs.count() else ""
+
+    @staticmethod
+    def _find_tab(tabs, name) -> int:
+        for i in range(tabs.count()):
+            if tabs.tabText(i).replace(" ⚠", "") == name:
+                return i
+        return -1
+
+    def _restore_layout(self) -> None:
+        """Last session's splitter and tabs (the window size is restored by run_gui)."""
+        g = self._gui_prefs()
+        sizes = g.get("splitter")
+        if isinstance(sizes, list) and len(sizes) == 2 and all(isinstance(s, int) and s > 0 for s in sizes):
+            self.splitter.setSizes(sizes)
+        index = self._find_tab(self.tabs, g.get("tab"))
+        if index >= 0:
+            self.tabs.setCurrentIndex(index)
+        index = self._find_tab(self.left_tabs, g.get("plot_tab"))
+        if index >= 0 and index != self.results_index:      # Results reads files: not at start-up
+            self.left_tabs.setCurrentIndex(index)
+
+    def save_layout(self) -> None:
+        updates = {"splitter": self.splitter.sizes(), "tab": self._tab_name(self.tabs, self.tabs.currentIndex()),
+                   "plot_tab": self._tab_name(self.left_tabs, self.left_tabs.currentIndex())}
+        if not self.isFullScreen():
+            updates["geometry"] = bytes(self.saveGeometry().toBase64()).decode("ascii")
+            updates["maximized"] = self.isMaximized()
+        self._save_gui(**updates)
+
     # ------------------------------------------------------------- refreshing --
     def _update_readouts(self) -> None:
         connected = self.machine.connected
@@ -931,11 +1147,48 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             state = STATE_NAMES.get(s.state, s.state) if s else "—"
         self.state_label.setText(state)
+        if state != self._shown_state:
+            self._shown_state = state
+            themed(self.state_label, lambda st=state: pill_style(state_color(st)))
+            self.state_card.set_color({"OFFLINE": "muted", "IDLE": "accent", "MOVE": "warning", "RUN": "success",
+                                       "TEST": "success"}.get(state, "purple"))
+
+    def _update_status_bar(self) -> None:
+        """Camera state and post-processing, on the slow tick."""
+        t = theme()
+        cam = self.camera
+        if cam is not None:
+            text = dot(getattr(t, CAMERA_STATE_COLORS.get(cam.state, "muted")), f"Camera: {cam.state}")
+            if text != self.camera_status.text():
+                self.camera_status.setText(text)
+        pp = self.postprocess
+        if pp.busy or getattr(pp, "queue", None):
+            summary = pp.summary()
+            short = summary if len(summary) <= 60 else summary[:57] + "..."
+            self.post_status.setText(dot(t.accent, f"Processing: {short}"))
+            self.post_status.setToolTip(summary)
+            self.post_status.show()
+        else:
+            self.post_status.hide()
 
     def _update_enabled(self) -> None:
         connected = self.machine.connected
         s = self.machine.latest
         busy = self.busy_ops > 0 or self.runner is not None or (connected and s is not None and s.moving)
+        if not connected:
+            self.disabled_reason = "Connect to the machine first (Connect, top left)."
+        self.readiness_items: list = []         # the Ready checklist (vsbc.gui.readiness), on the slow tick
+        self._status_due = False                # read STATUS soon (after ZERO, TARE, ...)
+        self._status_polling = False
+        self._last_status_poll = 0.0
+        elif self.runner is not None:
+            self.disabled_reason = "A test is running."
+        elif s is not None and s.moving:
+            self.disabled_reason = "The crosshead is moving: wait for it, or press STOP."
+        elif busy:
+            self.disabled_reason = "Waiting for the machine to finish the last command."
+        else:
+            self.disabled_reason = ""
         for panel in self.panels:
             panel.update_enabled(connected, busy)
         cam = self.camera
@@ -944,10 +1197,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if available != self._results_available:
             # Reading frames would compete with the camera for the disk.
             self._results_available = available
-            self.results_view.set_available(available)
-            self.plots.setTabEnabled(self.results_index, available)
-            self.dic_view.set_available(available)
-            self.plots.setTabEnabled(self.dic_index, available)
+            self.results_tab.set_available(available)
+            self.left_tabs.setTabEnabled(self.results_index, available)
         self.port_combo.setEnabled(not connected and not self._connecting)
         self.connect_btn.setEnabled(not self._connecting and self.runner is None)
 
@@ -966,9 +1217,14 @@ class MainWindow(QtWidgets.QMainWindow):
             cam.wait_finished(60)
         if self.postprocess.busy and not self.ask(
                 "Quit", "Post-processing is still running. Quit anyway? It stops; run it again later with "
-                        "Camera > Process a folder."):
+                        "Results > DIC analysis."):
             event.ignore()
             return
+        try:
+            self.save_layout()
+            self.test_panel.save_settings()
+        except Exception:  # noqa: BLE001 - never block quitting
+            log.exception("could not save the window layout")
         self.timer.stop()
         self.storage_timer.stop()
         self.postprocess.stop()
@@ -984,12 +1240,20 @@ class MainWindow(QtWidgets.QMainWindow):
 def run_gui(config: Config, port: str | None = None, sim: bool = False, fullscreen: bool = False) -> int:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     app.setApplicationName("VSBC Tensile Tester")
-    font_px = apply_style(app, config.gui.font_pt, config.gui.scale)
+    prefs = load_preferences(config.preferences_file).get("gui")
+    prefs = prefs if isinstance(prefs, dict) else {}
+    font_px = apply_style(app, config.gui.font_pt, config.gui.scale, theme_name=str(prefs.get("theme", "light")))
     width, height = screen_size()
     log.info("screen %d × %d px: text %.1f px", width, height, font_px)
     win = MainWindow(config, port=port, sim=sim, auto_connect=bool(port or sim))
+    geometry = prefs.get("geometry")
     if fullscreen:
         win.showFullScreen()
+    elif isinstance(geometry, str) and win.restoreGeometry(QtCore.QByteArray.fromBase64(geometry.encode("ascii"))):
+        if prefs.get("maximized"):
+            win.showMaximized()
+        else:
+            win.show()
     elif width < 1300 or height < 860:          # 1280 × 800 and the title bar would not fit
         win.showMaximized()
     else:

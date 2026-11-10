@@ -15,9 +15,11 @@ import math
 
 from vsbc.camera import tiff
 from vsbc.camera.roi import Roi, load_roi, polygon_mask, rect_mask, save_roi
-from vsbc.gui.common import Qt, QtCore, QtWidgets, button, em, flow, np, pg, screen_size
+from vsbc.gui.common import (
+    NOTCH_COLOR, ROI_COLOR, SEED_COLOR, Qt, QtCore, QtWidgets, button, em, flow, np, pg, screen_size,
+)
 
-ROI_PEN = "#00c8ff"
+ROI_PEN = ROI_COLOR
 
 
 class RoiDialog(QtWidgets.QDialog):
@@ -56,10 +58,10 @@ class RoiDialog(QtWidgets.QDialog):
         self.vb = self.view.addViewBox(lockAspect=True, invertY=True, enableMenu=False)
         self.img = pg.ImageItem(axisOrder="row-major")
         self.vb.addItem(self.img)
-        self.seed_item = pg.ScatterPlotItem(symbol="+", size=20, pen=pg.mkPen("#2ecc71", width=3), brush=None)
-        self.notch_item = pg.ScatterPlotItem(symbol="t1", size=18, pen=pg.mkPen("#ff4df0", width=2),
+        self.seed_item = pg.ScatterPlotItem(symbol="+", size=20, pen=pg.mkPen(SEED_COLOR, width=3), brush=None)
+        self.notch_item = pg.ScatterPlotItem(symbol="t1", size=18, pen=pg.mkPen(NOTCH_COLOR, width=2),
                                              brush=pg.mkBrush(255, 77, 240, 120))
-        self.notch_text = pg.TextItem("", color="#ff4df0", anchor=(0, 1))
+        self.notch_text = pg.TextItem("", color=NOTCH_COLOR, anchor=(0, 1))
         for item in (self.seed_item, self.notch_item, self.notch_text):
             item.setZValue(11)
             self.vb.addItem(item)
@@ -78,7 +80,7 @@ class RoiDialog(QtWidgets.QDialog):
         self.start.activated.connect(lambda _i: self._start_from(self.start.currentData()))
         self.hint = QtWidgets.QLabel()
         self.hint.setWordWrap(True)
-        self.save_btn = button("Save for this test", self.save)
+        self.save_btn = button("Save for this test", self.save, role="primary")
         self.cancel_btn = button("Cancel", self.reject)
 
         layout = QtWidgets.QVBoxLayout(self)

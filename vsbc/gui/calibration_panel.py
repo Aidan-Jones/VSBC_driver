@@ -8,7 +8,7 @@ import logging
 from dataclasses import asdict
 
 from vsbc.calibration import latest_record, save_record
-from vsbc.gui.common import QtWidgets, button, fmt, form_layout
+from vsbc.gui.common import QtWidgets, button, explain_disabled, fmt, form_layout, theme
 from vsbc.gui.panels import Panel
 from vsbc.units import N_PER, Units
 
@@ -50,13 +50,23 @@ class CalibratePanel(Panel):
         self.lower_btn = button("Set lower travel limit here", lambda: self.set_limit("min_pos"))
         self.upper_btn = button("Set upper travel limit here", lambda: self.set_limit("max_pos"))
         self.max_load_btn = button("Set overload cutoff...", self.set_max_load)
-        self.refresh_btn = button("Refresh", self.refresh)
+        self.refresh_btn = button("Refresh", self.refresh, icon_name="reload")
+        self.refresh_btn.setToolTip("Read the settings from the Mega again")
+        form.addRow(self.refresh_btn)
+
+        load_box = QtWidgets.QGroupBox("Load cell")
+        lb = QtWidgets.QVBoxLayout(load_box)
+        for b in (self.load_btn, self.flip_btn, self.max_load_btn):
+            lb.addWidget(b)
+        travel_box = QtWidgets.QGroupBox("Travel and direction")
+        tb = QtWidgets.QVBoxLayout(travel_box)
+        for b in (self.travel_btn, self.dir_btn, self.lower_btn, self.upper_btn):
+            tb.addWidget(b)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(box)
-        for b in (self.load_btn, self.flip_btn, self.travel_btn, self.dir_btn, self.lower_btn, self.upper_btn,
-                  self.max_load_btn, self.refresh_btn):
-            layout.addWidget(b)
+        layout.addWidget(load_box)
+        layout.addWidget(travel_box)
         layout.addStretch(1)
 
     # ------------------------------------------------------------- display --
@@ -87,6 +97,9 @@ class CalibratePanel(Panel):
             else:
                 text = fmt(value, digits, kind)
             self.values[key].setText(text)
+            # Red: not calibrated yet; amber: a safety setting is off.
+            colour = theme().danger if text == "not calibrated" else theme().warning if text == "off" else None
+            self.values[key].setStyleSheet(f"QLabel {{ color: {colour}; font-weight: bold; }}" if colour else "")
         parts = []
         for kind, name in (("load", "load cell"), ("travel", "travel")):
             rec = latest_record(self.win.config.calibration_dir, kind)
@@ -105,6 +118,10 @@ class CalibratePanel(Panel):
         TravelCalibrationDialog(self.win).open_dialog()
 
     def apply_units(self, units: Units) -> None:
+        if self._settings:
+            self.show_settings(self._settings)
+
+    def restyle(self) -> None:
         if self._settings:
             self.show_settings(self._settings)
 
@@ -207,7 +224,7 @@ class CalibratePanel(Panel):
             def done(settings):
                 self.show_settings(settings)
                 self.win.inform("Motor B", ("Motor B's direction was flipped and saved. " if flip is not None else "")
-                                + "Single-motor moves clear the position reference: set it again (Jog tab).")
+                                + "Single-motor moves clear the position reference: set it again (Machine tab).")
 
             self.win.run_async(finish, done)
 
@@ -260,4 +277,5 @@ class CalibratePanel(Panel):
         for b in (self.load_btn, self.flip_btn, self.travel_btn, self.dir_btn, self.lower_btn, self.upper_btn,
                   self.max_load_btn):
             b.setEnabled(ok)
+            explain_disabled(b, self.win.disabled_reason)
         self.refresh_btn.setEnabled(connected)

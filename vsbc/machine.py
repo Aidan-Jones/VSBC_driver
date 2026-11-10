@@ -128,6 +128,7 @@ class Machine:
         self.latest: Sample | None = None
         self.sample_rate_hz = self.config.loadcell.rate_hz   # updated from STATUS
         self.warnings: list[str] = []         # connect-time warnings for the UI
+        self.last_status: Status | None = None   # the newest STATUS reply (None until connected)
         self._listeners: list[Callable[[Message], None]] = []
         self._raw_listeners: list[Callable[[str, bool], None]] = []
         self._move_end: queue.Queue[Event] = queue.Queue()
@@ -297,6 +298,7 @@ class Machine:
         self._stop_host_load_cell()
         link.close()
         self.link = None
+        self.last_status = None
         if self.sim is not None:
             self.sim.close()
             self.sim = None
@@ -418,7 +420,7 @@ class Machine:
         notice = (f"Stored the load-cell calibration made without the Mega on {pending['created']} "
                   f"({pending['scale']:.4f} counts/N).")
         if self.refresh_settings().get("max_load", 0.0) <= 0:
-            notice += " The overload cutoff (max_load) is off: set it in the Calibrate tab."
+            notice += " The overload cutoff (max_load) is off: set it in the Machine tab (Calibration)."
         self.warnings.append(notice)
         log.info(notice)
 
@@ -481,7 +483,10 @@ class Machine:
             link.write_line("STOP")
 
     def status(self) -> Status:
+        """Ask the Mega for its state (an "any time" command: it never stops a move). The answer is
+        also kept as `last_status` (the GUI's Ready checklist reads it)."""
         status = Status.from_reply(self.command("STATUS"))
+        self.last_status = status
         if status.sample_rate_hz > 0:
             self.sample_rate_hz = status.sample_rate_hz
         return status

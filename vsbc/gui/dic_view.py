@@ -1,5 +1,6 @@
-"""The DIC tab (left side, after Results): choose a test, check it, run DIC
-on it, and look at the displacement, strain and crack-tip results.
+"""Results > DIC analysis: check the chosen test, run DIC on it (or on any folder), and look at the
+displacement, strain and crack-tip results. The test is chosen in the Results tab's picker
+(`linked` mode); unlinked, the view has a picker of its own.
 
 Sub-tabs:
     Run        what to run and its parameters, the checklist, Run / Cancel, progress
@@ -28,9 +29,9 @@ from vsbc.camera.postprocess import Options
 from vsbc.camera.results import RunResults, load_results
 from vsbc.camera.roi import load_roi, outline, save_roi
 from vsbc.camera.scripts import check_scripts, literal_settings
-from vsbc.gui.camera_view import status_style
 from vsbc.gui.common import (
-    FlowTabs, Qt, QtCore, QtGui, QtWidgets, button, em, flow, form_layout, mono_font, np, pg, spin,
+    NOTCH_COLOR, PLACEHOLDER_COLOR, TIP_STYLES, FlowTabs, Qt, QtCore, QtGui, QtWidgets, button, em, flow,
+    form_layout, level_color, mono_font, np, pg, spin, status_style, style_plot, themed_pen,
 )
 from vsbc.storage import disk_status, list_outputs
 from vsbc.units import Units
@@ -40,8 +41,6 @@ log = logging.getLogger(__name__)
 CACHE_FRAMES = 48
 PLAY_FPS = (5, 15, 30)
 OVERLAY_ALPHA = 140
-LEVEL_COLOR = {"ok": "#1e8449", "warn": "#b9770e", "error": "#c0392b", "pending": "#7f8c8d"}
-TIP_STYLES = {"image tracker": ("+", "#ff3b30"), "opening method": ("x", "#00e5ff"), "by hand": ("o", "#ffd60a")}
 
 _env_check: tuple[bool, str] | None = None      # the camera environment check, once per session
 
@@ -137,14 +136,14 @@ class FramePane(QtWidgets.QWidget):
         self.overlay.setZValue(5)
         self.vb.addItem(self.overlay)
         self.roi_dots = pg.ScatterPlotItem(size=2, pen=None, brush=pg.mkBrush(0, 200, 255, 140))
-        self.notch = pg.ScatterPlotItem(symbol="t1", size=16, pen=pg.mkPen("#ff4df0", width=2),
+        self.notch = pg.ScatterPlotItem(symbol="t1", size=16, pen=pg.mkPen(NOTCH_COLOR, width=2),
                                         brush=pg.mkBrush(255, 77, 240, 100))
         self.markers = {name: pg.ScatterPlotItem(symbol=sym, size=18, pen=pg.mkPen(color, width=3), brush=None)
                         for name, (sym, color) in TIP_STYLES.items()}
         for item in (self.roi_dots, self.notch, *self.markers.values()):
             item.setZValue(10)
             self.vb.addItem(item)
-        self.placeholder = pg.TextItem("", color="#dddddd", anchor=(0.5, 0.5))
+        self.placeholder = pg.TextItem("", color=PLACEHOLDER_COLOR, anchor=(0.5, 0.5))
         self.vb.addItem(self.placeholder)
         self.bar = None
         try:
@@ -179,14 +178,13 @@ class FramePane(QtWidgets.QWidget):
         self.note.setWordWrap(True)
 
         self.plot = pg.PlotWidget()
-        self.plot.setBackground("w")
         self.plot.showGrid(x=True, y=True, alpha=0.3)
         self.plot.setMinimumHeight(em(7))
         self.plot.setMaximumHeight(em(12))
         self.plot.setMouseEnabled(x=True, y=False)
         self.plot.setLabel("bottom", "Time (s)")
         self.plot.addLegend(offset=(5, 5))
-        self.now_line = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen("#1f5fa8", width=2))
+        self.now_line = themed_pen(pg.InfiniteLine(angle=90, movable=False), "accent", 2)
         self.plot.addItem(self.now_line)
         self.plot.scene().sigMouseClicked.connect(self._plot_clicked)
         tick = QtGui.QFont()
@@ -194,6 +192,7 @@ class FramePane(QtWidgets.QWidget):
         for side in ("left", "bottom"):
             self.plot.getAxis(side).setStyle(tickFont=tick)
             self.plot.getAxis(side).enableAutoSIPrefix(False)
+        style_plot(self.plot)
 
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self._play_step)
@@ -418,7 +417,7 @@ class DisplacementPane(FramePane):
         self.per_frame = QtWidgets.QCheckBox("Colours per frame")
         self.per_frame.setToolTip("Scale the colours to this frame instead of the whole test")
         super().__init__(owner, [self.component, self.window_only, self.per_frame])
-        self.curve = self.plot.plot(pen=pg.mkPen("#1f5fa8", width=2), symbol="o", symbolSize=3, name="mean")
+        self.curve = themed_pen(self.plot.plot(symbol="o", symbolSize=3, name="mean"), "extension", 2)
         self.limits: tuple[float, float] = (0.0, 1.0)
         self.component.currentIndexChanged.connect(lambda _i: self.recompute())
         self.window_only.toggled.connect(lambda _on: self.reset())
@@ -487,7 +486,7 @@ class StrainPane(FramePane):
         self.window_only = QtWidgets.QCheckBox("Full-rate window only")
         self.per_frame = QtWidgets.QCheckBox("Colours per frame")
         super().__init__(owner, [self.component, self.window_only, self.per_frame])
-        self.curve = self.plot.plot(pen=pg.mkPen("#8e44ad", width=2), symbol="o", symbolSize=3, name="mean strain")
+        self.curve = themed_pen(self.plot.plot(symbol="o", symbolSize=3, name="mean strain"), "strain", 2)
         # Load on a second axis.
         item = self.plot.getPlotItem()
         self.load_vb = pg.ViewBox()
@@ -495,7 +494,7 @@ class StrainPane(FramePane):
         item.scene().addItem(self.load_vb)
         item.getAxis("right").linkToView(self.load_vb)
         self.load_vb.setXLink(item)
-        self.load_curve = pg.PlotCurveItem(pen=pg.mkPen("#c0392b", width=1.5))
+        self.load_curve = themed_pen(pg.PlotCurveItem(), "load", 1.5)
         self.load_vb.addItem(self.load_curve)
         item.vb.sigResized.connect(lambda: self.load_vb.setGeometry(item.vb.sceneBoundingRect()))
         self.limits: tuple[float, float] = (0.0, 1e-3)
@@ -792,9 +791,16 @@ class RunPane(QtWidgets.QWidget):
         cl.addWidget(self.check_text)
         cl.addLayout(flow(self.draw_roi_btn, self.fix_btn, self.recheck_btn))
 
-        self.run_btn = button("▶  Run", self.run)
+        self.run_btn = button("▶  Run", self.run, role="success")
         self.run_btn.setMinimumHeight(em(2.8))
-        self.cancel_btn = button("Cancel", self.cancel)
+        self.cancel_btn = button("Cancel", self.cancel, role="danger")
+        self.folder_btn = button("Process a folder...", self.process_folder,
+                                 tip="Run the Camera tab's 'After each test' steps on any test or recording folder")
+        self.pause_btn = button("Pause all", self.toggle_pause,
+                                tip="Pause or resume all post-processing (it pauses by itself during a test)")
+        self.queue_text = QtWidgets.QLabel()
+        self.queue_text.setWordWrap(True)
+        self.queue_text.setProperty("role", "hint")
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setTextVisible(False)
@@ -817,6 +823,11 @@ class RunPane(QtWidgets.QWidget):
         layout.addLayout(flow(self.run_btn, self.cancel_btn))
         layout.addWidget(self.progress)
         layout.addWidget(self.progress_text)
+        queue_box = QtWidgets.QGroupBox("All post-processing")
+        ql = QtWidgets.QVBoxLayout(queue_box)
+        ql.addWidget(self.queue_text)
+        ql.addLayout(flow(self.folder_btn, self.pause_btn))
+        layout.addWidget(queue_box)
         layout.addStretch(1)
         area = QtWidgets.QScrollArea()
         area.setWidgetResizable(True)
@@ -886,7 +897,7 @@ class RunPane(QtWidgets.QWidget):
         self.checks = dr.validate(data.res, self.options(), current_roi=self._current_roi(), env=_env_check,
                                   scripts=check_scripts(win.config.camera_dir), disk=disk,
                                   busy=run is not None and win.postprocess.running_for(run))
-        lines = [f"<span style='color:{LEVEL_COLOR[c.level]}'><b>{c.mark}</b></span> {_html(c.text)}"
+        lines = [f"<span style='color:{level_color(c.level)}'><b>{c.mark}</b></span> {_html(c.text)}"
                  for c in self.checks]
         self.check_text.setText("<br>".join(lines))
         self.fix_btn.setVisible(any(c.fix == "use_current_roi" for c in self.checks))
@@ -965,9 +976,27 @@ class RunPane(QtWidgets.QWidget):
             self.progress_text.setText("Cancelled.")
             self.validate()
 
+    def process_folder(self) -> None:
+        win = self.owner.win
+        start = str(win.config.tests_dir if win.config.tests_dir.is_dir() else win.config.output_dir)
+        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Test or recording folder", start)
+        if path:
+            win.queue_postprocess(Path(path))
+
+    def toggle_pause(self) -> None:
+        pp = self.owner.win.postprocess
+        if pp.paused:
+            pp.resume()
+        else:
+            pp.pause()
+        self.show_progress()
+
     def show_progress(self) -> None:
         data = self.owner.data
         pp = self.owner.win.postprocess
+        self.queue_text.setText(pp.summary())
+        self.pause_btn.setText("Resume all" if pp.paused else "Pause all")
+        self.pause_btn.setEnabled(pp.busy or pp.paused)
         run = data.res.run if data is not None else None
         if run is None:
             self.progress.setValue(0)
@@ -1000,9 +1029,11 @@ def _html(text: str) -> str:
 # ------------------------------------------------------------------- tab --
 
 class DicView(QtWidgets.QWidget):
-    def __init__(self, win):
+    def __init__(self, win, linked: bool = False):
         super().__init__()
         self.win = win
+        self.linked = linked
+        self._follow: Path | None = None        # linked: the folder chosen in the Results picker
         self.units: Units = win.units
         self.data: DicData | None = None
         self.available = True
@@ -1020,10 +1051,13 @@ class DicView(QtWidgets.QWidget):
         self.reload_btn = button("⟳", self.reload)
         self.reload_btn.setFixedWidth(em(3))
         self.reload_btn.setToolTip("Read the list of tests and this test's results again")
-        top = QtWidgets.QHBoxLayout()
+        top_bar = QtWidgets.QWidget()
+        top = QtWidgets.QHBoxLayout(top_bar)
+        top.setContentsMargins(0, 0, 0, 0)
         top.addWidget(QtWidgets.QLabel("Test:"))
         top.addWidget(self.choice, 1)
         top.addWidget(self.reload_btn)
+        top_bar.setVisible(not linked)
         self.status = QtWidgets.QLabel()
         self.status.setWordWrap(True)
         self.status.setStyleSheet(status_style())
@@ -1045,8 +1079,8 @@ class DicView(QtWidgets.QWidget):
         self.inner.currentChanged.connect(self._inner_changed)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addLayout(top)
+        layout.setContentsMargins(0, 0, 0, 0) if linked else layout.setContentsMargins(4, 4, 4, 4)
+        layout.addWidget(top_bar)
         layout.addWidget(self.status)
         layout.addWidget(self.inner, 1)
         self._show(None)
@@ -1067,10 +1101,31 @@ class DicView(QtWidgets.QWidget):
         if not self.available:
             return
         self.check_environment()
+        if self.linked:
+            if self._follow is not None:
+                self._load_followed(force=True)
+            return
         if self._stale:
             self.refresh_list()
         elif self.data is not None:
             self.load(self.data.res.folder)
+
+    def show_folder(self, folder: Path) -> None:
+        """Linked: follow the Results picker (read now if this page is showing, else when it opens)."""
+        self._follow = Path(folder)
+        if self.isVisible() and self.available:
+            self._load_followed(force=False)
+
+    def _load_followed(self, force: bool) -> None:
+        folder = self._follow
+        if not ((folder / "camera" / "frames.csv").is_file() or (folder / "frames.csv").is_file()):
+            self._generation += 1
+            self._show(None)
+            self.status.setText(f"{folder.name} has no camera recording, so there is nothing for DIC here.")
+            return
+        if force or self._stale or self.data is None or Path(self.data.res.folder) != folder:
+            self._stale = False
+            self.load(folder)
 
     def mark_stale(self, newest: Path | None = None) -> None:
         self._stale = True
@@ -1154,6 +1209,10 @@ class DicView(QtWidgets.QWidget):
 
     def reload(self) -> None:
         self._stale = True
+        if self.linked:
+            if self._follow is not None:
+                self._load_followed(force=True)
+            return
         self.refresh_list()
         if self.data is not None:
             self.load(self.data.res.folder)
@@ -1258,10 +1317,13 @@ class DicView(QtWidgets.QWidget):
     def refresh_status(self) -> None:
         """Slow GUI tick: progress, and a reload when this test's jobs finish."""
         data = self.data
+        showing_run = self.isVisible() and self.inner.currentWidget() is self.run_pane
         if data is None or data.res.run is None:
+            if showing_run:
+                self.run_pane.show_progress()
             return
         busy = self.win.postprocess.running_for(data.res.run)
-        if self.inner.currentWidget() is self.run_pane:
+        if showing_run:
             self.run_pane.show_progress()
         if self._was_busy and not busy:
             self._was_busy = False

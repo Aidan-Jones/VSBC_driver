@@ -1,7 +1,7 @@
 """Display units for force and travel.
 
 The firmware, the protocol and the data files work in newtons and millimetres.
-`Units` converts to and from what the operator picked in the Units tab (or
+`Units` converts to and from what the operator picked in the Display tab (or
 [units] in config.toml), for the GUI, summary.txt, plot.png, the extra data.csv
 columns and the camera video overlay. Derived values follow the choice: rates
 are length per minute (test) or per second (jog), stiffness is force per
@@ -153,7 +153,7 @@ def save_preferences(path: Path, updates: dict) -> None:
 
 
 def effective_units(config) -> Units:
-    """The Units tab's last choice (Outputs/preferences.json), else [units] in config.toml."""
+    """The Display tab's last choice (Outputs/preferences.json), else [units] in config.toml."""
     base = Units(config.units.force, config.units.length)
     return units_from_dict(load_preferences(config.preferences_file).get("units"), base)
 

@@ -236,14 +236,16 @@ Open `firmware/vsbc_firmware/vsbc_firmware.ino`, select **Arduino Mega or Mega 2
 │  123.45 N      12.3450 mm        2.3450 mm          TEST                  │
 ├──────────────────────────────────────────┬────────────────────────────────┤
 │ [Camera] [Load – extension]              │ [Test] [Camera] [Outputs]      │
-│ [Load & position – time] [Results] [DIC] │ [Jog] [Calibrate] [Units] ...  │
+│ [Load & position – time] [Results] [DIC] │ [Jog] [Calibrate] [Display] ...│
 │   (camera preview, live plot, results)   │  (tab contents)                │
 └──────────────────────────────────────────┴────────────────────────────────┘
 ```
 
 - **STOP** (or **Esc** / **Space**) stops the motors immediately. It is always enabled. Any command sent while the motors are moving also stops them.
-- **Connect**: pick the Mega's port (or "Auto-detect", or "Simulator") and press Connect. Warnings (load cell not found, not calibrated, position not referenced, storage low) appear in a banner under the readouts.
-- **Readouts**: load, crosshead position, extension since the test started, and machine state, in the units chosen in the Units tab.
+- **Connect**: pick the Mega's port (or "Auto-detect", or "Simulator") and press Connect. The dot next to it is grey when not connected, amber while connecting, green on the Mega and purple on the simulator. Warnings (load cell not found, not calibrated, position not referenced, storage low) appear in a banner under the readouts, one per line. **×** hides them until they happen again; red ones (connection lost, disk almost full, camera stopped recording) stay until their cause is gone.
+- **Readouts**: load, crosshead position and extension since the test started, each on a card whose top edge has the colour of its plot curve, and the machine state as a coloured pill (grey OFFLINE, blue IDLE, amber MOVE, green RUN/TEST). Values are in the units chosen in the Display tab.
+- **Status bar**: the last message (green when a test finished, red after a safety stop), and on the right the post-processing queue, the camera state and the free disk space.
+- A greyed-out button says why in its tool tip; under **Start test** the reason is shown in words (for example "Connect to the machine first").
 - **Left tabs**:
   - **Camera** (the default): the live preview, the ROI editor and the high-speed button (see [DIC camera](#dic-camera)).
   - **Load – extension**: the current test.
@@ -255,16 +257,16 @@ Tabs on the right:
 
 | Tab | What it does |
 |---|---|
-| **Test** | Specimen ID, rate, maximum extension, load and break limits, optional area and gauge length, tare before starting, return afterwards. **Start test**, the **⚡ High-speed camera** button during a test, then the results summary, **View results** (the Results tab) and **Open results folder**. |
+| **Test** | **Specimen** (ID, area and gauge length, operator, notes) and **Test settings** (rate, maximum extension, load and break limits, tare before starting, return afterwards). **Start test**, the **⚡ High-speed camera** button during a test, then the peak load, extension at peak and stop reason as cards over the results summary, **View results** (the Results tab) and **Open results folder**. After a test the specimen ID counts up (A1 → A2, S-09 → S-10). The settings, operator and next ID are remembered. |
 | **Camera** | Camera settings from `camera/capture_dic_live.py`: recording with each test, frames per load sample, RAM buffer, settle time, load-cell delay, DIC options, and what runs after the test (video, DIC, strain, crack tips). It also checks the camera scripts and has Reload, Process a folder, and Check camera. |
-| **Outputs** | Disk space, every test and recording with its size, **View results**, **Copy to a USB drive**, delete a test or only its camera images, delete old logs. |
+| **Outputs** | Disk space, every test and recording with its size and result (green: ended by itself, red: safety stop), **View results** (or double-click a row), **Copy to a USB drive**, delete a test or only its camera images, delete old logs. |
 | **Jog** | Move the crosshead: rate, step (0.01 / 0.1 / 1 / 10 mm, or 0.001–0.5 in), ▲ / ▼ buttons (also the arrow keys), Go to, Home, Tare. Set the position reference. Service mode: move one motor only. |
-| **Calibrate** | Shows the calibration stored on the Mega. Load-cell and travel wizards, **flip load sign**, direction check, travel limits, overload cutoff. |
-| **Units** | Force in N or lbf; travel in mm, cm, m or in. The GUI uses these units everywhere. data.csv keeps its N/mm columns and gets extra columns in the chosen units; summary.txt, plot.png and the video use them too. The choice is remembered. |
-| **Console** | Raw serial terminal (like the Serial Monitor) and a log of events. |
-| **Firmware** | Shows the firmware version; compiles and uploads the firmware (arduino-cli). |
+| **Calibrate** | Shows the calibration stored on the Mega ("not calibrated" in red, an overload cutoff that is off in amber). **Load cell**: wizard, **flip load sign**, overload cutoff. **Travel and direction**: wizard, direction check, travel limits. |
+| **Display** | **Theme**: light, or dark for dim rooms (it applies at once and is remembered). Units: force in N or lbf; travel in mm, cm, m or in. The GUI uses these units everywhere. data.csv keeps its N/mm columns and gets extra columns in the chosen units; summary.txt, plot.png and the video use them too. The choice is remembered. |
+| **Console** | Raw serial terminal (like the Serial Monitor) and a log of events: sent commands blue, errors red, events purple, notes grey. **Clear** empties it. |
+| **Firmware** | Shows the firmware version with ✓ when it matches, ✗ when the protocol differs; compiles and uploads the firmware (arduino-cli). |
 
-The GUI sizes itself for the screen it opens on. Text, buttons, readouts and plot labels scale with the screen: 800 × 480 and 1024 × 600 touchscreens get 13 px text (the smallest size that is still easy to read), a 1280 × 800 screen gets `font_pt` (11 pt), and larger or high-resolution screens get proportionally bigger text. Sizes are in pixels, so a screen that reports a wrong physical size (common on HDMI touchscreens) does not make the text tiny or huge. On a narrow screen, button rows and the tab buttons wrap onto a second row instead of scrolling sideways. Only a tab taller than the screen scrolls, and only up and down. A window smaller than 1280 × 800 opens maximised. If the text is still too small or too large, set `scale` under `[gui]` in `config.toml`. It replaces the automatic factor: `scale = 1.2` gives 1.2 × `font_pt` on any screen. The log records the screen size and text size the GUI chose.
+The GUI sizes itself for the screen it opens on. Text, buttons, readouts and plot labels scale with the screen: 800 × 480 and 1024 × 600 touchscreens get 13 px text (the smallest size that is still easy to read), a 1280 × 800 screen gets `font_pt` (11 pt), and larger or high-resolution screens get proportionally bigger text. Sizes are in pixels, so a screen that reports a wrong physical size (common on HDMI touchscreens) does not make the text tiny or huge. On a narrow screen, button rows and the tab buttons wrap onto a second row instead of scrolling sideways. Only a tab taller than the screen scrolls, and only up and down. A window smaller than 1280 × 800 opens maximised; after that the app reopens at its last size and position, with the same tabs and divider position. If the text is still too small or too large, set `scale` under `[gui]` in `config.toml`. It replaces the automatic factor: `scale = 1.2` gives 1.2 × `font_pt` on any screen. The log records the screen size and text size the GUI chose.
 
 ### Position reference
 
@@ -438,7 +440,7 @@ Outputs/
 ├── logs/vsbc.log                             app log (rotating)
 ├── logs/camera.log                           the camera process
 ├── logs/2026-09-29_15-00-02_serial.log       each connection's serial session
-├── preferences.json                          the Units tab's choice
+├── preferences.json                          the Display tab's choices, the window layout, the last test settings
 ├── last_position.json                        position saved at the last clean exit
 └── pending_load_calibration.json             only after `calibrate load --no-mega`, until the Mega has it
 ```
@@ -496,7 +498,7 @@ Every command that talks to the machine accepts `--port` (default: auto-detect),
 | `vsbc ports` | List serial ports |
 | `vsbc loadcell [--seconds 5]` | Check the load cell where `config.toml` says it is wired: raw counts and sample rate from the Mega (default), and why it is not responding if so; with `source = "pi"`, the HX711 on the Pi's GPIO pins (discarded readings too, no Mega needed). It first prints which config file it read. |
 
-`vsbc --help` and `vsbc <command> --help` list all options. `python -m vsbc ...` works too. Command-line values are in mm and N; printed results use the display units (`[units]`, or the Units tab's last choice).
+`vsbc --help` and `vsbc <command> --help` list all options. `python -m vsbc ...` works too. Command-line values are in mm and N; printed results use the display units (`[units]`, or the Display tab's last choice).
 
 ---
 
@@ -562,7 +564,7 @@ The same jobs in `vsbc_firmware`:
 - default test settings;
 - the watchdog timeout;
 - GUI refresh rate, text size (`font_pt`, and `scale` to override the automatic screen scaling) and full screen;
-- `[units]`: the default display units (the Units tab overrides them and remembers its choice);
+- `[units]`: the default display units (the Display tab overrides them and remembers its choice);
 - `[storage]`: the free-space warning levels;
 - `[camera]`: the camera folder and environment, recording with each test, how frames are saved (`save_mode`), the load-cell delay, and what runs after the test.
 

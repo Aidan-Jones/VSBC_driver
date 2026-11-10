@@ -1,4 +1,5 @@
-"""Live plots: load vs extension for the current test, and load / position vs time.
+"""The Live tab: load vs extension for the current test, and load / position vs time
+(two buttons at the top switch between them).
 
 Data are kept in newtons and millimetres and converted to the display units
 when drawn, so changing the units redraws everything at once.
@@ -8,7 +9,9 @@ from __future__ import annotations
 
 from collections import deque
 
-from vsbc.gui.common import FlowTabs, GrowingArray, QtGui, em, np, pg
+from vsbc.gui.common import (
+    FlowTabs, GrowingArray, QtGui, em, np, pg, plot_label_style, style_plot, theme, themed_pen,
+)
 from vsbc.protocol import Sample
 from vsbc.units import Units
 
@@ -18,7 +21,7 @@ IDLE_WINDOW_S = 20.0      # load / position vs time before the first test: only 
 class LivePlots(FlowTabs):
     def __init__(self, window_s: float = 60.0, parent=None, units: Units | None = None):
         super().__init__(parent)
-        pg.setConfigOptions(antialias=True, background="w", foreground="k")
+        pg.setConfigOptions(antialias=True, background=theme().plot_bg, foreground=theme().plot_fg)
         self.units = units or Units()
 
         # Load vs extension (the test)
@@ -26,8 +29,11 @@ class LivePlots(FlowTabs):
         self.test_plot.showGrid(x=True, y=True, alpha=0.3)
         self.test_plot.setDownsampling(auto=True, mode="peak")
         self.test_plot.setClipToView(True)
-        self.test_curve = self.test_plot.plot(pen=pg.mkPen("#1f5fa8", width=2))
-        self.peak_marker = self.test_plot.plot(pen=None, symbol="o", symbolBrush="#c0392b", symbolSize=em(0.75))
+        self.test_curve = themed_pen(self.test_plot.plot(), "extension", 2)
+        self.peak_marker = self.test_plot.plot(pen=None, symbol="o", symbolBrush="#e74c3c", symbolPen="w",
+                                               symbolSize=em(0.9))
+        self.peak_text = pg.TextItem("", color="#e74c3c", anchor=(0, 1.1))
+        self.test_plot.addItem(self.peak_text)
         self.addTab(self.test_plot, "Load – extension")
 
         # Load and position vs time (rolling window)
@@ -37,8 +43,8 @@ class LivePlots(FlowTabs):
         self.pos_plot = self.time_widget.addPlot(row=1, col=0)
         self.pos_plot.showGrid(x=True, y=True, alpha=0.3)
         self.pos_plot.setXLink(self.load_plot)
-        self.load_curve = self.load_plot.plot(pen=pg.mkPen("#c0392b", width=2))
-        self.pos_curve = self.pos_plot.plot(pen=pg.mkPen("#1e8449", width=2))
+        self.load_curve = themed_pen(self.load_plot.plot(), "load", 2)
+        self.pos_curve = themed_pen(self.pos_plot.plot(), "position", 2)
         self.addTab(self.time_widget, "Load && position – time")   # && = a literal & in a tab label
 
         n = int(window_s * 100)
@@ -58,12 +64,13 @@ class LivePlots(FlowTabs):
         for plot in (self.test_plot.getPlotItem(), self.load_plot, self.pos_plot):
             for side in ("left", "bottom"):
                 plot.getAxis(side).setStyle(tickFont=tick_font)
-        self.pos_plot.setLabel("bottom", "Time", units="s", **self._label_style())
+        for plot in (self.test_plot, self.time_widget, self.load_plot, self.pos_plot):
+            style_plot(plot)
         self.apply_units(self.units)
 
-    @staticmethod
-    def _label_style() -> dict:
-        return {"font-size": f"{em(0.95)}px"}
+    def restyle(self) -> None:
+        """The theme changed: the axis labels carry their own colour."""
+        self.apply_units(self.units)
 
     def apply_units(self, units: Units) -> None:
         """Relabel the axes and redraw in the new units. The unit goes in the label, without
@@ -75,7 +82,8 @@ class LivePlots(FlowTabs):
                                        (self.pos_plot, "left", "Position", units.length)):
             axis = plot.getAxis(side)
             axis.enableAutoSIPrefix(False)
-            plot.setLabel(side, f"{text} ({unit})", **self._label_style())
+            plot.setLabel(side, f"{text} ({unit})", **plot_label_style())
+        self.pos_plot.setLabel("bottom", "Time (s)", **plot_label_style())
         if self._peak is not None:
             self.mark_peak(*self._peak)
         self._dirty = True
@@ -101,6 +109,7 @@ class LivePlots(FlowTabs):
         self._test_load.clear()
         self._peak = None
         self.peak_marker.setData([], [])
+        self.peak_text.setText("")
         # Show load - extension, unless another tab (the camera) was chosen on purpose.
         if self.currentWidget() in (self.test_plot, self.time_widget):
             self.setCurrentWidget(self.test_plot)
@@ -109,7 +118,10 @@ class LivePlots(FlowTabs):
     def mark_peak(self, extension_mm: float, load_n: float) -> None:
         if np.isfinite(load_n):
             self._peak = (extension_mm, load_n)
-            self.peak_marker.setData([self.units.length_from_mm(extension_mm)], [self.units.force_from_n(load_n)])
+            x, y = self.units.length_from_mm(extension_mm), self.units.force_from_n(load_n)
+            self.peak_marker.setData([x], [y])
+            self.peak_text.setText(f"peak {self.units.format_force(load_n)}")
+            self.peak_text.setPos(x, y)
 
     def refresh(self) -> None:
         if not self._dirty:

@@ -124,7 +124,7 @@ def find_break(load: np.ndarray, drop_pct: float, min_peak_n: float, confirm: in
 
 REVERSED_TENSION_NOTE = (
     "Tension read as negative load while pulling: the load-cell calibration's sign is reversed "
-    "(Calibrate tab > Flip load sign). Break detection could not arm, and the peak load is not valid."
+    "(Machine tab > Calibration > Flip load sign). Break detection could not arm, and the peak load is not valid."
 )
 
 

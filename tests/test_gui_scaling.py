@@ -122,3 +122,29 @@ def test_window_fits_small_screens_without_sideways_scrolling(app, config, resto
     finally:
         win.close()
         app.processEvents()
+
+
+def test_next_specimen_id():
+    assert common.next_specimen_id("A1") == "A2"
+    assert common.next_specimen_id("S-09") == "S-10"
+    assert common.next_specimen_id("A9") == "A10"
+    assert common.next_specimen_id("T7-b") == "T8-b"
+    assert common.next_specimen_id("Sample") == "Sample"
+    assert common.next_specimen_id("") == ""
+
+
+def test_dark_theme_recolours_and_keeps_the_sizes(app, restore_font):
+    from vsbc.gui.common import QtGui
+
+    label = common.themed(QtWidgets.QLabel("caption"), common.caption_style)
+    try:
+        common.apply_style(app, 11, size=(1280, 800), theme_name="dark")
+        assert common.theme() is common.DARK
+        assert f"min-height: {common.em(2.3)}px" in app.styleSheet()
+        assert app.palette().color(QtGui.QPalette.ColorRole.Window).name() == common.DARK.bg
+        assert common.DARK.muted in label.styleSheet()
+        common.set_theme(app, "light")
+        assert common.LIGHT.muted in label.styleSheet()
+        assert common.set_theme(app, "no such theme") is common.LIGHT
+    finally:
+        common.set_theme(app, "light")

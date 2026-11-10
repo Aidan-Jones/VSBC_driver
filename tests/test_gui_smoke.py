@@ -41,6 +41,7 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
         assert _wait(app, lambda: win.machine.connected and win.machine.latest is not None
                      and win.connect_btn.text() == "Disconnect")
         assert win.state_label.text() == "IDLE"
+        assert _wait(app, lambda: "background" in win.state_label.styleSheet(), 2)     # the state pill
         assert win.test_panel.start_btn.isEnabled()
 
         # Jog +1 mm (default step) at the jog rate.
@@ -62,6 +63,9 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
         assert result.stop_reason == "BREAK" and not result.aborted
         assert (result.folder / "data.csv").is_file()
         assert "Peak load" in win.test_panel.result.toPlainText()
+        assert "Specimen: GUI-1" in win.test_panel.result.toPlainText()
+        assert win.test_panel.specimen.text() == "GUI-2"                 # counts up for the next specimen
+        assert "break" in win.test_panel.stop_card.value.text().lower()
         assert len(win.plots._ext) > 10
         assert win.plots.currentWidget() is win.camera_view       # a test does not switch away from the camera
 
@@ -79,4 +83,44 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
         assert shot.stat().st_size > 10_000
     finally:
         win.close()
+        app.processEvents()
+
+
+def test_gui_remembers_layout_theme_and_test_settings(app, config):
+    from vsbc.gui import common
+
+    win = MainWindow(config, interactive=False)
+    win.show()
+    try:
+        win.test_panel.operator.setText("Sam")
+        win.test_panel.specimen.setText("B07")
+        win.test_panel.rate.setValue(12.0)
+        win.tabs.setCurrentWidget(win.jog_panel)
+        win.set_theme("dark")
+        assert common.theme() is common.DARK
+
+        # Banner: the × hides ordinary warnings; critical ones stay until their cause is gone.
+        win._add_warning("Load cell not calibrated.")
+        win._add_warning("Connection lost: unplugged")
+        win.dismiss_warnings()
+        assert not win.banner.isHidden() and win.banner_close.isHidden()
+        assert "Connection lost" in win.banner_text.text() and "not calibrated" not in win.banner_text.text()
+        win._remove_warnings("Connection lost")
+        assert win.banner.isHidden()
+        win._add_warning("Load cell not calibrated.")      # still dismissed: it never went away
+        assert win.banner.isHidden()
+    finally:
+        win.close()
+        app.processEvents()
+    again = MainWindow(config, interactive=False)
+    try:
+        panel = again.test_panel
+        assert panel.operator.text() == "Sam" and panel.specimen.text() == "B07"
+        assert panel.rate.si_value() == pytest.approx(12.0)
+        assert again.tabs.currentWidget().widget() is again.jog_panel
+        prefs = again._gui_prefs()
+        assert prefs["theme"] == "dark" and prefs["geometry"] and len(prefs["splitter"]) == 2
+    finally:
+        common.set_theme(QtWidgets.QApplication.instance(), "light")
+        again.close()
         app.processEvents()

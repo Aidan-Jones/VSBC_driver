@@ -1,4 +1,4 @@
-"""Units tab: the force and travel units the GUI shows and accepts.
+"""Display tab: the light or dark theme, and the force and travel units the GUI shows and accepts.
 
 The machine, data.csv's N / mm columns and summary.json stay in newtons and
 millimetres; with other units data.csv gets extra columns in them, and
@@ -8,7 +8,7 @@ Outputs/preferences.json (config.toml [units] is the default).
 
 from __future__ import annotations
 
-from vsbc.gui.common import QtWidgets, button
+from vsbc.gui.common import QtWidgets, button, theme
 from vsbc.gui.panels import Panel
 from vsbc.units import FORCE_UNITS, LENGTH_UNITS, Units
 
@@ -17,8 +17,28 @@ LENGTH_NAMES = {"mm": "mm", "cm": "cm", "m": "m", "in": "in (inch)"}
 
 
 class UnitsPanel(Panel):
+    THEMES = (("light", "Light"), ("dark", "Dark (dim rooms, less glare)"))
+
+    def show_theme(self, name: str) -> None:
+        for i, (key, _text) in enumerate(self.THEMES):
+            if key == name:
+                self.theme_group.button(i).setChecked(True)
+
+    def restyle(self) -> None:
+        self.show_theme(theme().name)
     def __init__(self, win):
         super().__init__(win)
+        self.theme_group = QtWidgets.QButtonGroup(self)
+        theme_box = QtWidgets.QGroupBox("Theme")
+        theme_row = QtWidgets.QHBoxLayout(theme_box)
+        for i, (name, text) in enumerate(self.THEMES):
+            b = QtWidgets.QRadioButton(text)
+            self.theme_group.addButton(b, i)
+            theme_row.addWidget(b)
+        theme_row.addStretch(1)
+        self.show_theme(theme().name)
+        self.theme_group.idClicked.connect(lambda i: self.win.set_theme(self.THEMES[i][0]))
+
         self.force_group = QtWidgets.QButtonGroup(self)
         self.length_group = QtWidgets.QButtonGroup(self)
         force_box = QtWidgets.QGroupBox("Force (load)")
@@ -44,6 +64,7 @@ class UnitsPanel(Panel):
         self.reset_btn = button("Reset to the config.toml defaults", self.reset)
 
         layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(theme_box)
         layout.addWidget(force_box)
         layout.addWidget(length_box)
         layout.addWidget(self.example)
