@@ -24,7 +24,7 @@ from vsbc.gui.calibration_panel import CalibratePanel
 from vsbc.gui.common import (
     SAFETY_STOPS, FlowTabs, QShortcut, Qt, QtCore, QtGui, QtWidgets, Section, StatCard, apply_style, banner_style,
     button, dot, em, exec_app, level_color, narrow_combo, pill_style, reveal, screen_size, set_role, state_color,
-    stop_style, theme, themed,
+    stop_style, theme, themed, touch_scroll, touch_scroll_wanted,
 )
 from vsbc.gui.common import set_theme as set_app_theme
 from vsbc.gui.outputs_panel import OutputsPanel
@@ -121,6 +121,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build()
         self._restore_layout()
         self._restore_sections()
+        # Touch screen: drag a page anywhere to scroll it (the scroll bars stay).
+        self.touch = touch_scroll_wanted(config.gui.touch_scroll)
+        if self.touch:
+            areas = touch_scroll(self)
+            # A drag scrolls the list now, and Ctrl / Shift do not exist on a touch screen: a tap adds a
+            # test to the selection or takes it out.
+            table = self.outputs_panel.table
+            table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.MultiSelection)
+            table.setToolTip("Tap tests to select them (tap again to unselect); double-tap one to open it in Results")
+            log.info("touch scrolling on %d areas", areas)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(max(10, int(1000 / config.gui.refresh_hz)))
@@ -634,6 +644,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._connecting = True
         self._ready_seen = False
         self._show_connection("Connecting...", "warning")
+        self.refresh_readiness()
 
         def work():
             info = self.machine.connect(None if sim else port, sim=sim)
@@ -665,6 +676,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_connect_failed(self, exc: BaseException) -> None:
         self._connecting = False
         self._show_connection("Not connected", "muted")
+        self.refresh_readiness()
         text = str(exc) or type(exc).__name__
         if isinstance(exc, FirmwareMismatch):
             if exc.banner:

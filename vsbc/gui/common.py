@@ -805,6 +805,113 @@ def reveal(widget, glow: bool = True) -> None:
     QtCore.QTimer.singleShot(0, scroll)       # after the layout has placed the unfolded widgets
 
 
+# ------------------------------------------------------------ touch scrolling --
+# Drag anywhere on a page to scroll it, with momentum (QScroller); the scroll bars stay. A tap still
+# clicks; a press that turns into a drag scrolls instead and never clicks.
+#
+# Where the numbers come from (they are in "dp": Android's density-independent pixel, taken here as
+# 1/14 of the body text, the size Android sets body text at):
+#   drag start 10 dp  Android ViewConfiguration.TOUCH_SLOP = 8 dp, a little more for gloves and the
+#                     jitter of cheap resistive panels. (Qt's default, 5 mm, feels sticky.)
+#   press delay 0.1 s Android TAP_TIMEOUT = 100 ms: how long to wait before deciding tap or scroll.
+#                     (Qt's default, 0.25 s, makes buttons feel slow to respond.)
+#   fling 50 dp/s     Android MINIMUM_FLING_VELOCITY = 50 dp/s: slower releases just stop. A tap on
+#                     a page moving slower than this also clicks through (MaximumClickThroughVelocity).
+#   top speed 3000    Android's MAXIMUM_FLING_VELOCITY (8000 dp/s) is for long lists; these pages are a
+#     dp/s            few screens tall, so close to Qt's default (0.5 m/s, about 2600 px/s on the 7" Pi
+#                     display) instead.
+#   overshoot         Android: 0 dp overscroll while dragging, 6 dp after a fling (an edge glow does the
+#                     rest). Qt's default bounces a whole screen; here a short bounce marks the end.
+# Deceleration and the easing curve keep Qt's defaults. Tune TOUCH below on the Pi itself.
+#
+# QScroller works in metres and converts with the screen's *physical* DPI, which HDMI touchscreens often
+# report wrongly. The values are converted back with that same DPI, so they come out in the intended
+# pixels whatever the screen claims.
+TOUCH = {
+    "drag_start_dp": 10.0,
+    "press_delay_s": 0.10,
+    "min_fling_dp_s": 50.0,
+    "max_speed_dp_s": 3000.0,
+    "overshoot_drag": 0.05,        # of the viewport height, while dragging past the end
+    "overshoot_fling": 0.02,       # of the viewport height, after a fling hits the end
+    "overshoot_time_s": 0.35,
+}
+
+
+def has_touch_screen() -> bool:
+    """Does Qt see a touch screen (not a touch pad)?"""
+    QTouchDevice = getattr(QtGui, "QTouchDevice", None)          # Qt 5
+    if QTouchDevice is not None:
+        return any(d.type() == QTouchDevice.DeviceType.TouchScreen for d in QTouchDevice.devices())
+    QInputDevice = getattr(QtGui, "QInputDevice", None)          # Qt 6
+    if QInputDevice is not None:
+        return any(d.type() == QInputDevice.DeviceType.TouchScreen for d in QInputDevice.devices())
+    return False
+
+
+def touch_scroll_wanted(setting) -> bool:
+    """config [gui] touch_scroll: "auto" (when there is a touch screen), true or false."""
+    if isinstance(setting, bool):
+        return setting
+    text = str(setting).strip().lower()
+    if text in ("on", "true", "yes", "1"):
+        return True
+    if text in ("off", "false", "no", "0"):
+        return False
+    return has_touch_screen()
+
+
+def touch_scroller_properties(widget) -> "QtWidgets.QScrollerProperties":
+    P = QtWidgets.QScrollerProperties
+    screen = widget.screen() if hasattr(widget, "screen") else None
+    screen = screen or QtWidgets.QApplication.primaryScreen()
+    dpi = screen.physicalDotsPerInchY() if screen is not None else 0.0
+    px_per_m = (dpi if dpi > 1 else 96.0) / 0.0254          # what QScroller itself will use
+    dp = _font_px / 14.0
+
+    def metres(dps: float) -> float:
+        return dps * dp / px_per_m
+
+    t = TOUCH
+    props = P()
+    m = P.ScrollMetric
+    for metric, value in ((m.MousePressEventDelay, t["press_delay_s"]),
+                          (m.DragStartDistance, metres(t["drag_start_dp"])),
+                          (m.MinimumVelocity, metres(t["min_fling_dp_s"])),
+                          (m.MaximumClickThroughVelocity, metres(t["min_fling_dp_s"])),
+                          (m.MaximumVelocity, metres(t["max_speed_dp_s"])),
+                          (m.OvershootDragDistanceFactor, t["overshoot_drag"]),
+                          (m.OvershootScrollDistanceFactor, t["overshoot_fling"]),
+                          (m.OvershootScrollTime, t["overshoot_time_s"])):
+        props.setScrollMetric(metric, value)
+    off = P.OvershootPolicy.OvershootAlwaysOff
+    props.setScrollMetric(m.HorizontalOvershootPolicy, off)    # the pages never scroll sideways
+    return props
+
+
+def touch_scroll(root) -> int:
+    """Drag-to-scroll on every scrolling area under `root` (pages, lists, tables, text), except the
+    plots and camera views, where a drag pans, zooms or draws. Returns how many areas it set up."""
+    scroller_cls = QtWidgets.QScroller
+    gesture = scroller_cls.ScrollerGestureType.LeftMouseButtonGesture   # touch reaches Qt as mouse events too
+    areas = [root] if isinstance(root, QtWidgets.QAbstractScrollArea) else []
+    areas += root.findChildren(QtWidgets.QAbstractScrollArea)
+    count = 0
+    for area in areas:
+        if isinstance(area, QtWidgets.QGraphicsView) or area.property("no_touch_scroll"):
+            continue
+        if isinstance(area.parentWidget(), QtWidgets.QComboBox):
+            continue
+        if isinstance(area, QtWidgets.QAbstractItemView):
+            area.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollMode.ScrollPerPixel)
+            area.setHorizontalScrollMode(QtWidgets.QAbstractItemView.ScrollMode.ScrollPerPixel)
+        viewport = area.viewport()
+        scroller_cls.grabGesture(viewport, gesture)
+        scroller_cls.scroller(viewport).setScrollerProperties(touch_scroller_properties(area))
+        count += 1
+    return count
+
+
 def fmt(value: float | None, digits: int, unit: str = "") -> str:
     if value is None or (isinstance(value, float) and not math.isfinite(value)):
         return "—"
@@ -957,4 +1064,5 @@ __all__ = ["QtCore", "QtGui", "QtWidgets", "Qt", "QShortcut", "pg", "np", "fmt",
            "style_plot", "plot_label_style", "state_color", "level_color", "stop_color", "dot", "pill_style",
            "card_style", "status_style", "countdown_style", "set_role", "icon", "explain_disabled",
            "next_specimen_id", "StatCard", "SAFETY_STOPS", "ROI_COLOR", "SEED_COLOR", "NOTCH_COLOR",
-           "PLACEHOLDER_COLOR", "TIP_STYLES", "Section", "flash", "reveal"]
+           "PLACEHOLDER_COLOR", "TIP_STYLES", "Section", "flash", "reveal", "TOUCH", "has_touch_screen",
+           "touch_scroll_wanted", "touch_scroller_properties", "touch_scroll"]

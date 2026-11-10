@@ -19,7 +19,7 @@ from vsbc.calibration import (
     LoadFit, LoadPoint, TravelTrial, apply_load_fit, apply_travel, collect_raw, fit_load_calibration,
     mass_to_newtons, save_record, travel_correction,
 )
-from vsbc.gui.common import QtWidgets, QuantitySpin, button, em, form_layout, screen_size, spin
+from vsbc.gui.common import QtWidgets, QuantitySpin, button, em, form_layout, screen_size, spin, touch_scroll
 
 AVERAGE_S = 3.0
 
@@ -39,6 +39,8 @@ class _Dialog(QtWidgets.QDialog):
         width, height = screen_size(self.win)
         self.setMaximumSize(width, height)
         self.adjustSize()
+        if getattr(self.win, "touch", False):
+            touch_scroll(self)
         run = getattr(self, "exec", None) or self.exec_
         run()
 

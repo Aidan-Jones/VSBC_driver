@@ -41,7 +41,7 @@ def _status(**changes):
 
 def _window(connected=True, status=None, specimen="A1", warnings=(), saved=False):
     """Just what readiness() reads."""
-    return NS(machine=NS(connected=connected, last_status=status), reveal=lambda _w: None,
+    return NS(machine=NS(connected=connected, last_status=status), reveal=lambda _w: None, toggle_connection=None,
               calibrate_panel=NS(load_btn=None, flip_btn=None), jog_panel=NS(reference_box=None, motors=None),
               has_saved_position=saved, _warnings=list(warnings), test_panel=NS(specimen=NS(text=lambda: specimen)),
               camera=None)
@@ -86,6 +86,24 @@ def test_fix_opens_the_folded_section_it_points_to(app, config):
         win.machine.select_motors("AB")
         assert _wait(app, lambda: win.test_panel.start_btn.isEnabled(), 5)
         assert "Ready" in win.ready_chip.text()
+    finally:
+        win.close()
+        app.processEvents()
+
+
+def test_connect_button_in_the_checklist_connects(app, config):
+    win = MainWindow(config, interactive=False)
+    win.resize(1280, 800)
+    win.show()
+    try:
+        win.select_port("SIM")                      # the port chosen in the top bar
+        win.refresh_readiness()
+        item = next(i for i in win.readiness_items if i.key == "connect")
+        assert item.required and "Simulator" in item.text
+        win.test_panel.ready.fix_buttons["connect"].click()
+        assert win._connecting and "connect" not in win.test_panel.ready.fix_buttons    # no second press
+        assert _wait(app, lambda: win.machine.connected and win.connect_btn.text() == "Disconnect")
+        assert _wait(app, lambda: "connect" not in [i.key for i in win.readiness_items if i.required], 3)
     finally:
         win.close()
         app.processEvents()

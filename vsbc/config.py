@@ -64,6 +64,7 @@ class GuiConfig:
     time_window_s: float = 60.0
     font_pt: float = 11.0            # text size on a 1280 × 800 screen; other screens scale it
     scale: float = 0.0               # 0 = from the screen size; else a fixed factor on font_pt
+    touch_scroll: object = "auto"    # drag a page to scroll it: "auto" (with a touch screen), true or false
 
 
 @dataclass

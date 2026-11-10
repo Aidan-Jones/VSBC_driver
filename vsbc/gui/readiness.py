@@ -35,8 +35,13 @@ def readiness(win) -> list[Item]:
     machine = win.machine
     reveal = win.reveal
     if not machine.connected:
-        items.append(Item("connect", "Connect to the machine", "todo", "Connect",
-                          lambda: reveal(win.connect_btn)))
+        if getattr(win, "_connecting", False):
+            items.append(Item("connect", "Connecting...", "todo"))
+        else:
+            port = win.port_combo.currentText() if hasattr(win, "port_combo") else ""
+            # Connects with the port chosen in the top bar, like the Connect button there.
+            items.append(Item("connect", f"Connect to the machine ({port})" if port else "Connect to the machine",
+                              "todo", "Connect", win.toggle_connection))
     else:
         items.append(Item("connect", "Connected", "ok"))
         st = machine.last_status
