@@ -15,17 +15,20 @@ plot.png use them.
 from __future__ import annotations
 
 import csv
-import json
+import logging
 import math
 import re
 import time
 from datetime import datetime
 from pathlib import Path
 
+from vsbc.jsonio import write_json
 from vsbc.analysis import REVERSED_TENSION_NOTE, Summary, analyze, tension_reads_negative, tension_threshold_n
 from vsbc.plotting import save_test_plot
 from vsbc.protocol import Sample
 from vsbc.units import Units
+
+log = logging.getLogger(__name__)
 
 CSV_COLUMNS = ["time_s", "position_mm", "extension_mm", "load_N", "stress_MPa", "strain", "raw_counts", "state"]
 
@@ -142,33 +145,47 @@ class TestRecorder:
     def finish(self, stop_reason: str | None, *, move_end: dict | None = None, aborted: bool = False,
                error: str | None = None, break_drop_pct: float = 40.0, break_min_n: float = 0.0,
                warnings: list[str] | None = None) -> Summary:
-        self.closed = True
-        self._csv_file.close()
-        self._serial.close()
+        """Close the files and write summary.json, summary.txt, plot.png and the final meta.json.
 
-        summary = analyze(
-            self.time, self.ext, self.load,
-            area_mm2=self.area, gauge_length_mm=self.gauge,
-            break_drop_pct=break_drop_pct, break_min_n=break_min_n, stop_reason=stop_reason,
-        )
+        Never raises for a failing output step (a full disk, a plotting error): the
+        step is skipped with a warning, and meta.json still gets its final status.
+        """
+        self.closed = True
         self.warnings = list(warnings or [])
+        for f in (self._csv_file, self._serial):
+            try:
+                f.close()
+            except OSError as e:
+                self._step_failed(f"closing {Path(f.name).name}", e)
+
+        try:
+            summary = analyze(
+                self.time, self.ext, self.load,
+                area_mm2=self.area, gauge_length_mm=self.gauge,
+                break_drop_pct=break_drop_pct, break_min_n=break_min_n, stop_reason=stop_reason,
+            )
+        except Exception as e:  # noqa: BLE001 - keep the data and the final meta.json
+            self._step_failed("the analysis", e)
+            summary = analyze([], [], [], stop_reason=stop_reason)
         if tension_reads_negative(self.load, self.ext, tension_threshold_n(self.capacity_n)):
             self.warnings.append(REVERSED_TENSION_NOTE)
-        self._write_json("summary.json", summary.to_dict())
-        text = f"Specimen: {self.specimen_id}\nStarted:  {self.meta['started']}\n\n{summary.to_text(self.units)}\n"
-        if not self.units.is_default:
-            text += f"\nUnits: {self.units.force}, {self.units.length} (summary.json is in N and mm)\n"
-        if self.warnings:
-            text += "\n" + "\n".join(f"Warning: {w}" for w in self.warnings) + "\n"
-        (self.folder / "summary.txt").write_text(text, encoding="utf-8")
+
+        def step(what: str, fn) -> None:
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001 - one failing output must not lose the others
+                self._step_failed(what, e)
+
+        step("summary.json", lambda: self._write_json("summary.json", summary.to_dict()))
         if self.time:
-            save_test_plot(
+            step("plot.png", lambda: save_test_plot(
                 self.folder / "plot.png", self.ext, self.load, summary,
                 title=f"{self.specimen_id}  ({self.meta['started']})",
                 stress_mpa=self.stress if self.area and self.gauge else None,
                 strain=self.strain if self.area and self.gauge else None,
                 units=self.units,
-            )
+            ))
+        step("summary.txt", lambda: self._write_summary_text(summary))
         self.meta.update({
             "ended": datetime.now().isoformat(timespec="seconds"),
             "status": "aborted" if aborted else "complete",
@@ -181,8 +198,20 @@ class TestRecorder:
             "mega_t0_ms": self.t0_ms,
             "start_position_mm": self.start_pos,
         })
-        self._write_json("meta.json", self.meta)
+        step("meta.json", lambda: self._write_json("meta.json", self.meta))
         return summary
+
+    def _write_summary_text(self, summary: Summary) -> None:
+        text = f"Specimen: {self.specimen_id}\nStarted:  {self.meta['started']}\n\n{summary.to_text(self.units)}\n"
+        if not self.units.is_default:
+            text += f"\nUnits: {self.units.force}, {self.units.length} (summary.json is in N and mm)\n"
+        if self.warnings:
+            text += "\n" + "\n".join(f"Warning: {w}" for w in self.warnings) + "\n"
+        (self.folder / "summary.txt").write_text(text, encoding="utf-8")
+
+    def _step_failed(self, what: str, exc: BaseException) -> None:
+        log.exception("test %s: %s failed", self.folder, what)
+        self.warnings.append(f"Could not write {what}: {type(exc).__name__}: {exc}")
 
     def update_meta(self, **fields) -> None:
         """Add to meta.json after the test (the camera summary)."""
@@ -190,11 +219,4 @@ class TestRecorder:
         self._write_json("meta.json", self.meta)
 
     def _write_json(self, name: str, data: dict) -> None:
-        def default(obj):
-            if isinstance(obj, Path):
-                return str(obj)
-            if isinstance(obj, float) and not math.isfinite(obj):
-                return None
-            return str(obj)
-
-        (self.folder / name).write_text(json.dumps(data, indent=2, default=default), encoding="utf-8")
+        write_json(self.folder / name, data)

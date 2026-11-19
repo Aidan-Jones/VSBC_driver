@@ -157,6 +157,34 @@ class Config:
         return self.output_dir / "camera"
 
 
+# What a TOML value may be for each field type (the annotations are strings: `from __future__ import annotations`).
+_ACCEPTED_TYPES = {
+    "bool": ((bool,), "true or false"),
+    "int": ((int,), "a whole number"),
+    "float": ((int, float), "a number"),
+    "str": ((str,), "a quoted string"),
+    "str | None": ((str,), "a quoted string"),
+    "Path": ((str,), "a quoted path"),
+}
+
+
+def _checked(obj, key: str, value, where: str):
+    """The value converted to the field's type; ValueError naming the key if it does not fit."""
+    field_type = next((f.type for f in dataclasses.fields(obj) if f.name == key), "object")
+    accepted = _ACCEPTED_TYPES.get(str(field_type))
+    if accepted is None:                      # e.g. gui.touch_scroll: "auto", true or false
+        return value
+    types, wanted = accepted
+    # bool is a subclass of int in Python: `watchdog_ms = true` must not pass as 1.
+    if not isinstance(value, types) or (isinstance(value, bool) and bool not in types):
+        raise ValueError(f"config key '{where}{key}' must be {wanted}, not {value!r}")
+    if field_type == "float":
+        return float(value)
+    if field_type == "Path":
+        return Path(value)
+    return value
+
+
 def _apply(obj, data: dict, where: str = "") -> None:
     for key, value in data.items():
         # Config.source (the file that was read) is not a setting; loadcell.source is.
@@ -168,7 +196,7 @@ def _apply(obj, data: dict, where: str = "") -> None:
                 raise ValueError(f"config key '{where}{key}' must be a table")
             _apply(current, value, f"{where}{key}.")
         else:
-            setattr(obj, key, value)
+            setattr(obj, key, _checked(obj, key, value, where))
 
 
 def load_config(path: str | Path | None = None) -> Config:

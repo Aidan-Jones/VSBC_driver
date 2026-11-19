@@ -537,6 +537,7 @@ def main():
     # must never block grabbing.
     save_q = queue.Queue()
     write_errors = []
+    write_error_reason = []     # why the first frame could not be written (disk full, permissions...)
     enqueued = set()
 
     def writer():
@@ -551,8 +552,12 @@ def main():
                     done_q.put(i)
                 else:
                     write_errors.append(i)
-            except Exception:
+                    if not write_error_reason:
+                        write_error_reason.append("cv2.imwrite returned False")
+            except Exception as e:
                 write_errors.append(i)
+                if not write_error_reason:
+                    write_error_reason.append(f"{type(e).__name__}: {e}")
             save_q.task_done()
 
     writers = [threading.Thread(target=writer, daemon=True) for _ in range(N_WRITERS)]
@@ -673,8 +678,9 @@ def main():
                 if write_errors and not write_warned:
                     # FIX: write errors (disk full) were only counted at the end
                     write_warned = True
-                    print(f"  WARNING: frame {write_errors[0]} could not be written (disk full?). "
-                          "Check the drive.")
+                    reason = write_error_reason[0] if write_error_reason else "unknown"
+                    print(f"  WARNING: frame {write_errors[0]} could not be written ({reason}). "
+                          "Check the drive (full? write-protected?).")
                 key = -1
                 if show:
                     small = cv2.resize(img, None, fx=PREVIEW_SCALE,
@@ -756,7 +762,8 @@ def main():
         "frames_grabbed": idx, "frames_saved": n_saved,
         "duration_s": t_total, "fps_measured": fps_meas,
         "dropped_frames": dropped, "grab_errors": grab_errors,
-        "write_errors": len(bad), "max_save_queue": max_queue,
+        "write_errors": len(bad), "first_write_error": write_error_reason[0] if write_error_reason else None,
+        "max_save_queue": max_queue,
         "markers": [{"frame": m[0], "pc_time_s": m[1], "label": m[2]}
                     for m in markers],
         "crack_windows": windows,

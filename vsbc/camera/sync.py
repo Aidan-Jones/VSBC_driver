@@ -33,6 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
+from vsbc import jsonio
 from vsbc.units import Units, units_from_dict
 
 FRAME_SYNC_COLUMNS = ("time_s", "load_N", "load_method", "sample_row", "position_mm", "extension_mm")
@@ -223,27 +224,8 @@ def read_json(path: Path) -> dict:
 
 
 def write_json(path: Path, data: dict) -> None:
-    def default(obj):
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, (np.floating,)):
-            return None if not math.isfinite(obj) else float(obj)
-        if isinstance(obj, Path):
-            return str(obj)
-        return str(obj)
-
-    def clean(obj):
-        if isinstance(obj, float) and not math.isfinite(obj):
-            return None
-        if isinstance(obj, dict):
-            return {k: clean(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [clean(v) for v in obj]
-        return obj
-
-    tmp = Path(path).with_name(Path(path).name + ".tmp")
-    tmp.write_text(json.dumps(clean(data), indent=2, default=default), encoding="utf-8")
-    os.replace(tmp, path)
+    """Atomic write; NaN / Infinity become null (vsbc.jsonio)."""
+    jsonio.write_json(path, data)
 
 
 def _cell(value: float, digits: int) -> str:

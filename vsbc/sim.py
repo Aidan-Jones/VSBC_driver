@@ -498,7 +498,7 @@ class SimulatedMega:
         self.last_load = NAN
         self.filt_load = NAN
         self._emit("EVT LOADCELL state=LOST")
-        if self.move is not None and self.move["mode"] == "RUN":
+        if self.move is not None:            # any move: no overload protection without readings
             self._stop("LOADCELL", now)
         if self.avg is not None:
             self._emit(f"ERR {self.avg['kind']} NOLOAD load cell stopped responding")

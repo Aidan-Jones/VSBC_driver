@@ -143,7 +143,7 @@ def test_test_recorded_with_the_simulated_camera(app, config):
         win.test_panel.rate.set_si_value(60.0)
         win.test_panel.max_ext.set_si_value(5.0)
         win.start_test()
-        assert win.runner is not None
+        assert _wait(app, lambda: win.runner is not None, 5)   # the preflight runs on a worker thread
         assert _wait(app, lambda: win.runner is None and win.last_result is not None, 30)
         folder = win.last_result.folder
         assert win.last_result.stop_reason == "BREAK"

@@ -30,7 +30,8 @@ import sys
 import threading
 import time
 from datetime import datetime
-from multiprocessing.connection import Listener
+from multiprocessing import AuthenticationError
+from multiprocessing.connection import Client, Listener
 from pathlib import Path
 from typing import Callable
 
@@ -49,6 +50,11 @@ CONNECT_TIMEOUT_S = 30.0          # importing pypylon / opening the camera can t
 REFERENCE_TIMEOUT_S = 10.0
 TARGET_SEND_S = 0.05
 OFFSET_WINDOW_NS = 2_000_000_000
+
+
+def _listener_socket(listener: Listener):
+    """The listening socket inside a multiprocessing Listener (a private attribute), for an accept timeout."""
+    return getattr(getattr(listener, "_listener", None), "_socket", None)
 
 
 def camera_python(config: Config) -> str:
@@ -147,17 +153,22 @@ class CameraClient:
             listener.close()
             self._fail(f"cannot start the camera process with {args[0]}: {e}")
             return
-        threading.Thread(target=self._accept, args=(listener, gen), name="camera-accept", daemon=True).start()
+        threading.Thread(target=self._accept, args=(listener, gen, key), name="camera-accept", daemon=True).start()
         self._stop_sender.clear()
         if self._sender_thread is None or not self._sender_thread.is_alive():   # still running after a crash
             self._sender_thread = threading.Thread(target=self._sender, name="camera-sender", daemon=True)
             self._sender_thread.start()
 
-    def _accept(self, listener: Listener, gen: int) -> None:
-        sock = getattr(getattr(listener, "_listener", None), "_socket", None)
+    def _accept(self, listener: Listener, gen: int, key: bytes) -> None:
+        deadline = time.monotonic() + CONNECT_TIMEOUT_S
+        done, aborted = threading.Event(), threading.Event()
+        sock = _listener_socket(listener)
         if sock is not None:
             sock.settimeout(0.5)
-        deadline = time.monotonic() + CONNECT_TIMEOUT_S
+        else:
+            # No timeout without that socket: a watchdog ends the wait if the process dies or takes too long.
+            threading.Thread(target=self._accept_watchdog, args=(listener, gen, key, deadline, done, aborted),
+                             name="camera-accept-watchdog", daemon=True).start()
         conn = None
         try:
             while conn is None:
@@ -169,10 +180,15 @@ class CameraClient:
                     if self._proc is None or self._proc.poll() is not None or time.monotonic() > deadline:
                         self._fail(f"the camera process did not start (see {self.log_path})", gen)
                         return
-                except (OSError, EOFError) as e:
+                except (OSError, EOFError, AuthenticationError) as e:
                     self._fail(f"the camera process did not connect: {e}", gen)
                     return
+                if aborted.is_set():          # the watchdog's own connection, not the camera process
+                    conn.close()
+                    self._fail(f"the camera process did not start (see {self.log_path})", gen)
+                    return
         finally:
+            done.set()
             listener.close()
         with self._life_lock:
             if gen != self._generation:
@@ -180,6 +196,20 @@ class CameraClient:
                 return
             self._conn = conn
         self._receive(conn, gen)
+
+    def _accept_watchdog(self, listener: Listener, gen: int, key: bytes, deadline: float,
+                         done: threading.Event, aborted: threading.Event) -> None:
+        """Unblock listener.accept() (closing the socket does not, on Linux) by connecting to it."""
+        while not done.wait(0.5):
+            proc = self._proc
+            if gen == self._generation and proc is not None and proc.poll() is None and time.monotonic() <= deadline:
+                continue
+            aborted.set()
+            try:
+                Client(listener.address, authkey=key).close()
+            except (OSError, EOFError, AuthenticationError):
+                pass
+            return
 
     def _receive(self, conn, gen: int) -> None:
         while True:

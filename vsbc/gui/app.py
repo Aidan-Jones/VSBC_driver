@@ -43,6 +43,9 @@ from vsbc.units import Units, clear_saved_units, effective_units, load_preferenc
 
 log = logging.getLogger(__name__)
 
+# Quitting during a test: how long to wait for the test files to be finished.
+FINISH_TEST_TIMEOUT_S = 15.0
+
 STOP_REASONS = {
     "BREAK": "specimen break detected",
     "LOAD": "stop load reached",
@@ -87,6 +90,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.test_start_pos: float | None = None
         self.last_ext: float | None = None
         self._connecting = False
+        self._preflighting = False              # a test's preflight is running on a worker thread
         self._ready_seen = False
         self._saved_position = False
         self._warnings: list[str] = []
@@ -718,7 +722,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ------------------------------------------------------------------ test --
     def start_test(self) -> None:
-        if self.runner is not None:
+        if self.runner is not None or self._preflighting:
             return
         spec = self.test_panel.build_spec()
         before_run = after_run = None
@@ -738,12 +742,25 @@ class MainWindow(QtWidgets.QMainWindow):
                 on_settle=lambda seconds: self.post(self.camera_view.show_countdown, seconds))
         runner = PullTestRunner(self.machine, spec, self.config, before_run=before_run, after_run=after_run,
                                 units=self.units)
-        try:
-            warnings = runner.preflight() + camera_warnings
-        except (PreflightError, DeviceError, LinkClosed, TimeoutError) as e:
-            self.warn("Cannot start the test", str(e))
-            return
-        if warnings and not self.ask("Start the test?", "\n\n".join(warnings) + "\n\nStart anyway?"):
+        self.last_result = None
+
+        # The preflight asks the Mega (STATUS, GET): on a worker thread, so a slow link never freezes the window.
+        def checked(warnings: list[str]) -> None:
+            self._preflighting = False
+            warnings = warnings + camera_warnings
+            if warnings and not self.ask("Start the test?", "\n\n".join(warnings) + "\n\nStart anyway?"):
+                return
+            self._launch_test(runner, spec, recording)
+
+        def refused(exc: BaseException) -> None:
+            self._preflighting = False
+            self.warn("Cannot start the test", str(exc) or type(exc).__name__)
+
+        self._preflighting = True
+        self.run_async(runner.preflight, checked, refused)
+
+    def _launch_test(self, runner: PullTestRunner, spec, recording: bool) -> None:
+        if self.runner is not None:
             return
         self.runner = runner
         if self.camera is not None:
@@ -797,7 +814,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.camera is not None:
             self.camera.runner = None
         self.postprocess.resume()
-        self.warn("Test failed", str(exc))
+        text = str(exc) or type(exc).__name__
+        self.test_panel.show_failed(text)
+        self.status("Test failed", "danger")
+        self.warn("Test failed", text)
 
     # ---------------------------------------------------------------- camera --
     def _on_camera_event(self, msg: dict) -> None:
@@ -1211,12 +1231,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.port_combo.setEnabled(not connected and not self._connecting)
         self.connect_btn.setEnabled(not self._connecting and self.runner is None)
 
+    def _wait_for(self, done: threading.Event, timeout: float, text: str) -> bool:
+        """Keep the window responsive (inbox, timers) until `done` is set or `timeout` passes."""
+        self.status(text, "warning")
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            deadline = time.monotonic() + timeout
+            while not done.is_set() and time.monotonic() < deadline:
+                QtWidgets.QApplication.processEvents(QtCore.QEventLoop.AllEvents, 50)
+                done.wait(0.02)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        return done.is_set()
+
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt name
         if self.runner is not None:
             if not self.ask("Quit", "A test is running. Stop it and quit?"):
                 event.ignore()
                 return
-            self.runner.request_stop()
+            runner = self.runner
+            runner.request_stop("the app closed")
+            # The runner thread is a daemon: quitting now could kill it before it writes
+            # summary.json, plot.png and the final meta.json.
+            if not self._wait_for(runner.files_written, FINISH_TEST_TIMEOUT_S, "Stopping the test and saving its files..."):
+                log.warning("quit: the test files were not finished within %.0f s", FINISH_TEST_TIMEOUT_S)
         cam = self.camera
         if cam is not None and cam.recording is not None:
             if not self.ask("Quit", "The camera is recording. Stop it and quit? (The frames so far are kept.)"):

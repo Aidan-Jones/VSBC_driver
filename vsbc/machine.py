@@ -19,7 +19,6 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Callable
 
 from vsbc import FIRMWARE_VERSION, PROTOCOL_VERSION
@@ -31,6 +30,8 @@ log = logging.getLogger(__name__)
 
 # The firmware's TARE / CAL average this long, and at least 16 samples (config.h AVERAGE_MS).
 AVERAGE_S = 2.0
+# disconnect(): how long to wait for the Mega to report IDLE after STOP, so the position can be saved.
+DISCONNECT_IDLE_WAIT_S = 1.0
 
 
 def mm_min_to_mm_s(rate_mm_min: float) -> float:
@@ -290,7 +291,13 @@ class Machine:
         if not link.closed:
             try:
                 self.stop()
+                # The Mega ends the move on its next loop, so a STATUS sent right behind
+                # the STOP can still say MOVE: ask again briefly before giving up the position.
                 status = self.status()
+                deadline = time.monotonic() + DISCONNECT_IDLE_WAIT_S
+                while status.state != "IDLE" and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                    status = self.status()
                 if status.state == "IDLE":
                     self._save_position(status)
             except (LinkClosed, TimeoutError, DeviceError, OSError) as e:

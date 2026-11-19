@@ -214,6 +214,16 @@ def test_load_cell_lost_during_run(machine, sim):
     assert end.fields["reason"] == "LOADCELL"
 
 
+def test_load_cell_lost_during_move(machine, sim):
+    # A jog has no overload protection without load readings, so it stops too.
+    machine.move_by(20.0, rate_mm_s=1.0)
+    time.sleep(0.2)
+    sim.disconnect_loadcell()
+    end = machine.wait_move_end(timeout=3)
+    assert end.fields["reason"] == "LOADCELL"
+    assert end.fields["mode"] == "MOVE"
+
+
 def test_watchdog_stops_a_silent_host(machine):
     machine.set("watchdog_ms", 300)
     machine._stop_ping.set()                        # the host "hangs"
@@ -304,3 +314,13 @@ def test_settings_survive_save_in_eeprom_file(config, tmp_path):
         assert m.settings["max_load"] == pytest.approx(123.0)
     finally:
         m.disconnect()
+
+
+def test_disconnect_during_a_move_saves_the_position(machine, config):
+    machine.zero()
+    machine.move_by(20.0, rate_mm_s=1.0)
+    time.sleep(0.3)
+    machine.sim = None          # pretend this is the real Mega: the position is only saved for one
+    machine.disconnect()
+    saved = machine.saved_position()
+    assert saved is not None and 0.0 < saved["pos_mm"] < 20.0

@@ -94,7 +94,7 @@ Any other line, including an unknown one, **stops the move** and gets
   safety checks, feeds `TARE`/`CAL` and, with `STREAM ON`, sends a `D` line.
   It is the only command without a reply, because it arrives up to 80 times
   a second; a malformed `LC` line is dropped. If no `LC` arrives for 0.5 s
-  the load cell counts as lost (`EVT LOADCELL state=LOST`, and a `RUN` ends
+  the load cell counts as lost (`EVT LOADCELL state=LOST`, and any move ends
   with `reason=LOADCELL`).
 - **RATE** sets the crosshead rate for every following move. Range
   0.002 mm/s up to the motor limit (`max=`, 10 mm/s at 640 steps/mm).
@@ -156,11 +156,19 @@ peak load during a `RUN` in the run direction (`nan` for `MOVE`).
 | `BREAK` | RUN: load fell `break_drop` % below its peak (after the peak reached `break_min`) on two samples in a row |
 | `LOAD` | RUN: \|load\| reached `stop_load` |
 | `OVERLOAD` | \|load\| reached `max_load` while rising, or the ADC saturated |
-| `LOADCELL` | RUN: the load cell stopped responding |
+| `LOADCELL` | The load cell stopped responding (any move: without readings there is no overload protection) |
 | `WATCHDOG` | No line from the host for `watchdog_ms` |
 | `TIMEOUT` | The move took more than its expected time + 1 s (should not happen) |
 | `LIMIT` | A limit switch triggered (only if configured) |
 | `ESTOP` | The E-stop input triggered (only if configured) |
+
+**"While rising", in detail.** A move that starts at or above `max_load` is
+allowed, so the crosshead can back a specimen out of an overload. It then stops
+only once \|load\| climbs more than 1 % of `max_load` past where that move
+started. The firmware does not know which direction unloads the specimen, so
+**each new move into an overloaded specimen can add up to another 1 %**:
+repeated jogs can creep upward. After an `OVERLOAD` stop, jog the other way
+first, and check that the load falls.
 
 ## Settings
 

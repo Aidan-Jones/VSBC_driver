@@ -71,7 +71,7 @@ def test_gui_connect_jog_and_pull_test(app, config, tmp_path):
         win.test_panel.area.setValue(10.0)
         win.test_panel.gauge.setValue(50.0)
         win.start_test()
-        assert win.runner is not None
+        assert _wait(app, lambda: win.runner is not None, 5)   # the preflight runs on a worker thread
         assert _wait(app, lambda: win.runner is None and win.last_result is not None, 15)
         result = win.last_result
         assert result.stop_reason == "BREAK" and not result.aborted
@@ -143,3 +143,41 @@ def test_gui_remembers_layout_theme_and_test_settings(app, config):
         common.set_theme(QtWidgets.QApplication.instance(), "light")
         again.close()
         app.processEvents()
+
+
+def test_failed_test_leaves_the_running_state(app, config):
+    win = MainWindow(config, interactive=False)
+    try:
+        panel = win.test_panel
+        panel.show_running(panel.build_spec())
+        assert panel.result.toPlainText().startswith("Running")
+        win._test_failed(RuntimeError("the Mega went away"))
+        assert "ERROR: the Mega went away" in panel.result.toPlainText()
+        assert win.runner is None
+    finally:
+        win.close()
+
+
+def test_quitting_during_a_test_finishes_its_files(app, config):
+    import json
+
+    win = MainWindow(config, interactive=False)       # answers "Stop it and quit?" with yes
+    win.show()
+    try:
+        slow = Specimen(**{**FAST_SPECIMEN, "extension_at_peak_mm": 40.0, "break_extension_mm": 45.0})
+        win.connect_machine(None, sim=SimulatedMega(specimen=slow, seed=4))
+        assert _wait(app, lambda: win.machine.connected)
+        win.test_panel.specimen.setText("QUIT-1")
+        assert _wait(app, lambda: win.test_panel.start_btn.isEnabled(), 3)
+        win.start_test()
+        assert _wait(app, lambda: win.runner is not None and win.runner.recorder is not None
+                     and len(win.runner.recorder.time) > 5, 10)
+        runner = win.runner
+        folder = runner.recorder.folder
+    finally:
+        win.close()
+    assert runner.files_written.is_set()
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["status"] != "running" and meta["samples"] > 5
+    assert any("the app closed" in w for w in meta["warnings"])
+    assert (folder / "summary.json").is_file()

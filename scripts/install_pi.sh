@@ -13,6 +13,8 @@ VENV="$REPO/.venv"
 CAMERA_VENV="$REPO/.venv-camera"
 BIN="$HOME/.local/bin"
 CAMERA=""
+# arduino-cli release to install (a pinned version, not whatever "latest" is today).
+ARDUINO_CLI_VERSION="${ARDUINO_CLI_VERSION:-1.1.1}"
 for arg in "$@"; do
     case "$arg" in
         --camera) CAMERA="y" ;;
@@ -35,7 +37,8 @@ ln -sf "$VENV/bin/vsbc" "$BIN/vsbc"
 sudo ln -sf "$VENV/bin/vsbc" /usr/local/bin/vsbc
 
 echo "==> Serial port (Mega) and GPIO (load cell) permissions"
-for group in dialout gpio; do
+# plugdev: the Basler camera (udev rule below).
+for group in dialout gpio plugdev; do
     if getent group "$group" >/dev/null && ! id -nG "$USER" | grep -qw "$group"; then
         sudo usermod -aG "$group" "$USER"
         echo "    Added $USER to the '$group' group: log out and back in once."
@@ -44,7 +47,7 @@ done
 
 echo "==> arduino-cli (compiles and uploads the Mega firmware)"
 if ! command -v arduino-cli >/dev/null 2>&1 && [ ! -x "$BIN/arduino-cli" ]; then
-    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR="$BIN" sh
+    curl -fsSL "https://raw.githubusercontent.com/arduino/arduino-cli/v$ARDUINO_CLI_VERSION/install.sh" | BINDIR="$BIN" sh -s "$ARDUINO_CLI_VERSION"
 fi
 CLI="$(command -v arduino-cli || echo "$BIN/arduino-cli")"
 if [ "$CLI" = "$BIN/arduino-cli" ]; then
@@ -117,12 +120,14 @@ if [[ "$CAMERA" =~ ^[Yy] ]]; then
     "$CAMERA_VENV/bin/pip" install --upgrade pip
     "$CAMERA_VENV/bin/pip" install -r "$REPO/camera/requirements.txt"
 
-    # Let pypylon open Basler USB cameras (vendor 2676) without root.
+    # Let pypylon open Basler USB cameras (vendor 2676) without root: users in plugdev only,
+    # not everyone. Rewritten when an older install left a different (world-writable) rule.
     RULE=/etc/udev/rules.d/69-basler-cameras.rules
-    if [ ! -f "$RULE" ]; then
-        echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="2676", MODE="0666"' | sudo tee "$RULE" >/dev/null
+    RULE_TEXT='SUBSYSTEM=="usb", ATTRS{idVendor}=="2676", GROUP="plugdev", MODE="0660"'
+    if [ ! -f "$RULE" ] || [ "$(cat "$RULE")" != "$RULE_TEXT" ]; then
+        echo "$RULE_TEXT" | sudo tee "$RULE" >/dev/null
         sudo udevadm control --reload-rules && sudo udevadm trigger
-        echo "    Added $RULE"
+        echo "    Wrote $RULE"
     fi
 
     # Basler recommends 1000 MB of USB buffer memory for USB 3 cameras (the default 16 MB drops frames).

@@ -52,3 +52,21 @@ def test_camera_dir_is_relative_to_the_repository(tmp_path):
 def test_missing_explicit_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_config(tmp_path / "nope.toml")
+
+
+def test_wrong_value_types_are_rejected(tmp_path):
+    path = tmp_path / "c.toml"
+    for text, key in (('watchdog_ms = "3000"\n', "watchdog_ms"), ("watchdog_ms = true\n", "watchdog_ms"),
+                      ('[loadcell]\nrate_hz = "80"\n', "loadcell.rate_hz"), ("[gui]\nfullscreen = 1\n", "gui.fullscreen"),
+                      ("[serial]\nport = 5\n", "serial.port"), ("output_dir = 3\n", "output_dir")):
+        path.write_text(text)
+        with pytest.raises(ValueError, match=key):
+            load_config(path)
+
+
+def test_whole_numbers_are_fine_for_float_keys(tmp_path):
+    path = tmp_path / "c.toml"
+    path.write_text('[loadcell]\nrate_hz = 80\n[gui]\ntouch_scroll = true\n')
+    cfg = load_config(path)
+    assert cfg.loadcell.rate_hz == 80.0 and isinstance(cfg.loadcell.rate_hz, float)
+    assert cfg.gui.touch_scroll is True

@@ -2,7 +2,7 @@
 flash its own Mega without the Arduino IDE.
 
 Install arduino-cli once (scripts/install_pi.sh does this):
-    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=~/.local/bin sh
+    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/v1.1.1/install.sh | BINDIR=~/.local/bin sh -s 1.1.1
 """
 
 from __future__ import annotations

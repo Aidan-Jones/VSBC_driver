@@ -179,3 +179,32 @@ def test_restart_keeps_the_new_camera_process(config, machine):
     finally:
         cam.stop()
     assert senders() == before
+
+
+def test_a_camera_process_that_dies_is_noticed_without_the_accept_timeout(config, machine, monkeypatch):
+    import subprocess
+    import sys
+
+    from vsbc.camera import client as client_module
+
+    real_popen = subprocess.Popen
+    monkeypatch.setattr(client_module, "_listener_socket", lambda listener: None)
+    monkeypatch.setattr(client_module.subprocess, "Popen",
+                        lambda args, **kw: real_popen([sys.executable, "-c", "pass"], **kw))
+    cam = CameraClient(config, machine, sim=True)
+    cam.start()
+    deadline = time.monotonic() + 10
+    while cam.state != "error" and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert cam.state == "error" and "did not start" in cam.error
+    cam.stop()
+
+
+def test_the_camera_still_connects_without_the_accept_timeout(config, machine, monkeypatch):
+    from vsbc.camera import client as client_module
+
+    monkeypatch.setattr(client_module, "_listener_socket", lambda listener: None)
+    cam = _start(config, machine)
+    time.sleep(1.2)                       # past a few watchdog checks: it must leave a live process alone
+    assert cam.state == "preview"
+    cam.stop()

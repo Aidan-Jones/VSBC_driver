@@ -94,3 +94,12 @@ def test_multi_point_calibration_against_simulator(machine, sim):
     assert fit.r2 > 0.9999
     apply_load_fit(machine, fit)
     assert machine.refresh_settings()["load_scale"] == pytest.approx(fit.scale, rel=1e-4)
+
+
+def test_records_are_strict_json(tmp_path):
+    fit = fit_load_calibration(_points(1000, 10, [0, 10]))
+    path = save_record(tmp_path, "load", {"fit": fit, "noise": float("nan"), "points": [LoadPoint(0.0, 1.0, float("inf"), 1)]})
+    text = path.read_text()
+    assert "NaN" not in text and "Infinity" not in text
+    data = json.loads(text)
+    assert data["noise"] is None and data["points"][0]["raw_std"] is None

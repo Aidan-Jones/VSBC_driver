@@ -241,6 +241,14 @@ class TestPanel(Panel):
                 self.specimen.setText(following)
                 self.win.console.note(f"Next specimen ID: {following}")
 
+    def show_failed(self, text: str) -> None:
+        """The test could not run or report a result: say why and leave the running state."""
+        specimen = getattr(self, "_running_id", None) or self.specimen.text().strip()
+        self.result.setPlainText(f"Specimen: {specimen}\nERROR: {text}")
+        has_folder = self.folder is not None
+        self.open_btn.setEnabled(has_folder)
+        self.view_btn.setEnabled(has_folder)
+
     def _show_cards(self, result) -> None:
         u, s = self.win.units, result.summary
         peak = getattr(s, "peak_load_n", None) if s is not None else None

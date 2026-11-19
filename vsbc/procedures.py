@@ -100,6 +100,8 @@ class PullTestRunner:
         self.running = False
         self.stop_notes: list[str] = []     # why the test was stopped from outside (the camera)
         self._stop_requested = threading.Event()
+        # Set once the test's files are complete (before any return to the start position).
+        self.files_written = threading.Event()
 
     def request_stop(self, reason: str | None = None) -> None:
         if reason and reason not in self.stop_notes:
@@ -164,6 +166,7 @@ class PullTestRunner:
         m, s = self.machine, self.spec
         self.running = True
         self._stop_requested.clear()
+        self.files_written.clear()
         inbox: queue.Queue = queue.Queue()
         rec: TestRecorder | None = None
         move_end: Event | None = None
@@ -222,17 +225,23 @@ class PullTestRunner:
         summary = None
         warnings = [f"Stopped because {note}." for note in self.stop_notes]
         if rec is not None:
-            summary = rec.finish(
-                stop_reason,
-                move_end=dict(move_end.fields) if move_end else None,
-                aborted=aborted,
-                error=error,
-                break_drop_pct=s.break_drop_pct,
-                break_min_n=s.break_min_n,
-                warnings=warnings,
-            )
-            warnings = rec.warnings
+            try:
+                summary = rec.finish(
+                    stop_reason,
+                    move_end=dict(move_end.fields) if move_end else None,
+                    aborted=aborted,
+                    error=error,
+                    break_drop_pct=s.break_drop_pct,
+                    break_min_n=s.break_min_n,
+                    warnings=warnings,
+                )
+            except Exception as e:  # noqa: BLE001 - the data is on disk; always report a result
+                log.exception("finishing the test files failed")
+                warnings.append(f"Could not finish the test files: {type(e).__name__}: {e}")
+            else:
+                warnings = rec.warnings
         self.running = False
+        self.files_written.set()
 
         if s.return_after and not aborted and self.start_pos is not None and m.connected:
             try:

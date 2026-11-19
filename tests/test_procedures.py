@@ -125,3 +125,43 @@ def test_recorder_blank_stress_without_geometry(tmp_path):
     assert float(rows[-1]["extension_mm"]) == pytest.approx(0.19)
     assert summary.peak_load_n == pytest.approx(190)
     assert rec.folder.parent.parent == tmp_path
+
+
+def test_recorder_finish_survives_a_failing_plot(tmp_path, monkeypatch):
+    def broken_plot(*args, **kwargs):
+        raise RuntimeError("no display")
+
+    monkeypatch.setattr("vsbc.recorder.save_test_plot", broken_plot)
+    rec = TestRecorder(tmp_path, "P1", {"test": "unit"})
+    for i in range(20):
+        rec.add(Sample(1000 + 12 * i, 0.01 * i, 10.0 * i, 1000 * i, "R"))
+    summary = rec.finish("BREAK")
+    assert summary.peak_load_n == pytest.approx(190)
+    meta = json.loads((rec.folder / "meta.json").read_text())
+    assert meta["status"] == "complete" and meta["samples"] == 20
+    assert any("plot.png" in w and "no display" in w for w in meta["warnings"])
+    assert (rec.folder / "summary.json").is_file()
+    assert "plot.png" in (rec.folder / "summary.txt").read_text()
+
+
+def test_runner_reports_a_result_when_finishing_fails(machine, config, monkeypatch):
+    def broken_finish(self, *args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(TestRecorder, "finish", broken_finish)
+    machine.zero()
+    runner = PullTestRunner(machine, _spec(), config)
+    result = runner.run()
+    assert not runner.running
+    assert result.folder is not None and result.stop_reason == "BREAK"
+    assert any("No space left" in w for w in result.warnings)
+
+
+def test_meta_json_is_strict_json(tmp_path):
+    rec = TestRecorder(tmp_path, "N1", {"settings": {"max_load": float("nan"), "min_pos": float("-inf")}})
+    rec.finish("DONE")                                      # no samples: the summary is all NaN
+    for name in ("meta.json", "summary.json"):
+        text = (rec.folder / name).read_text()
+        assert "NaN" not in text and "Infinity" not in text
+        json.loads(text, parse_constant=lambda c: pytest.fail(f"{name} has {c}"))
+    assert json.loads((rec.folder / "meta.json").read_text())["settings"]["max_load"] is None

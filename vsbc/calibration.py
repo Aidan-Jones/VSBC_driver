@@ -12,12 +12,13 @@ import math
 import queue
 import re
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
+from vsbc import jsonio
 from vsbc.protocol import Sample
 
 G_STANDARD = 9.80665
@@ -227,21 +228,13 @@ def apply_travel(machine, new_steps_per_mm: float) -> None:
 
 # -------------------------------------------------------------------- records --
 
-def _jsonable(obj):
-    if hasattr(obj, "__dataclass_fields__"):
-        return asdict(obj)
-    if isinstance(obj, float) and not math.isfinite(obj):
-        return None
-    raise TypeError(f"not JSON serialisable: {type(obj)}")
-
-
 def save_record(directory: Path, kind: str, data: dict) -> Path:
     """Write Outputs/calibration/<timestamp>_<kind>.json and return its path."""
     now = datetime.now()
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{now:%Y-%m-%d_%H%M%S}_{kind}.json"
     record = {"kind": kind, "created": now.isoformat(timespec="seconds"), **data}
-    path.write_text(json.dumps(record, indent=2, default=_jsonable))
+    path.write_text(jsonio.dumps(record))
     return path
 
 

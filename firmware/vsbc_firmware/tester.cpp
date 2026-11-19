@@ -250,7 +250,9 @@ void checkLoadCell() {
   last_load = NAN;
   filt_load = NAN;
   Serial.println(F("EVT LOADCELL state=LOST"));
-  if (motion::mode() == motion::MODE_RUN) motion::stop(motion::END_LOADCELL);
+  // Any move: without load readings there is no overload protection. A new
+  // MOVE can still be started on purpose (to back off).
+  if (motion::busy()) motion::stop(motion::END_LOADCELL);
   if (avg_kind != tester::AVG_NONE) {
     Serial.print(F("ERR "));
     Serial.print(avg_kind == tester::AVG_TARE ? F("TARE") : F("CAL"));

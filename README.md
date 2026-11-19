@@ -621,8 +621,8 @@ Change them, then upload again.
 7. **App**: on the Pi, run `vsbc`, connect, then do the calibration steps in [Calibration](#calibration) in order.
 8. **Safety tests**, with a low `max_load`:
    - press on the load cell during a jog: `OVERLOAD` stop;
-   - unplug the HX711 during a `RUN`: `LOADCELL` stop;
-   - kill the app during a move: `WATCHDOG` stop within 3 s (during a `RUN` with the HX711 on the Pi, `LOADCELL` comes first, after 0.5 s).
+   - unplug the HX711 during a `RUN` or a jog: `LOADCELL` stop;
+   - kill the app during a move: `WATCHDOG` stop within 3 s (with the HX711 on the Pi, `LOADCELL` comes first, after 0.5 s).
 9. **First test**: a sacrificial specimen at a slow rate. Check that the elapsed time matches distance ÷ rate.
 
 ---

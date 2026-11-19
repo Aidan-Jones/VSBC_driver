@@ -62,7 +62,7 @@ class Summary:
             f"Stop reason:           {self.stop_reason or '-'}",
             f"Samples:               {self.n_samples} over {self.duration_s:.1f} s",
             f"Peak load:             {f(self.peak_load_n, fd, *force)} at {f(self.extension_at_peak_mm, ld, *length)}",
-            f"Break:                 "
+            "Break:                 "
             + (f"{f(self.break_load_n, fd, *force)} at {f(self.break_extension_mm, ld, *length)}"
                if self.break_detected else "not detected"),
             f"Max extension:         {f(self.max_extension_mm, ld, *length)}",
