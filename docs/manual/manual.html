@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VSBC Tensile Tester Manual</title>
+<!--
+  Source of VSBC_Manual.pdf (repository root). Rebuild with:  python docs/manual/build_manual.py
+  The screenshots in img/ come from capture_screenshots.py (the real GUI, offscreen, simulator).
+-->
+<style>
+  @page {
+    size: Letter;
+    margin: 0.7in 0.75in 0.75in 0.75in;
+    @top-left { content: "VSBC Tensile Tester"; font: 8pt "Segoe UI", system-ui, sans-serif; color: #7a8594; }
+    @bottom-center { content: counter(page); font: 9pt "Segoe UI", system-ui, sans-serif; color: #4a5562; }
+  }
+  @page cover { @top-left { content: none; } @bottom-center { content: none; } }
+
+  :root {
+    --ink: #1d2733; --muted: #5b6776; --line: #d5dce4; --soft: #f2f5f8; --accent: #1f5fa8;
+    --accent-soft: #e6eef8; --warn: #a35f00; --warn-soft: #fdf3e2; --danger: #b3261e; --ok: #1e7d43;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; color: var(--ink); background: #fff; font: 10pt/1.42 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  code, kbd, pre { font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace; font-size: 8.6pt; }
+  code { background: var(--soft); border-radius: 3px; padding: 0 3px; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: #fff; }
+  pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; margin: 6px 0 10px;
+        white-space: pre-wrap; line-height: 1.35; break-inside: avoid; }
+  pre code { background: none; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  b, strong { font-weight: 600; }
+  p { margin: 0 0 7px; }
+  ul, ol { margin: 0 0 8px; padding-left: 20px; }
+  li { margin: 1px 0; }
+
+  h1, h2, h3 { color: var(--ink); line-height: 1.2; break-after: avoid; }
+  h1 { font-size: 17pt; margin: 0 0 10px; padding-bottom: 5px; border-bottom: 2px solid var(--accent); }
+  h1 .n { color: var(--accent); margin-right: 8px; }
+  h2 { font-size: 11.5pt; margin: 14px 0 5px; }
+  h3 { font-size: 10pt; margin: 10px 0 4px; }
+  section.chapter { break-before: page; }
+  section.chapter.cont { break-before: auto; margin-top: 22px; }
+  .appendix h1 { border-bottom-color: #6b7787; }
+  .appendix h1 .n { color: #6b7787; }
+
+  table { width: 100%; border-collapse: collapse; margin: 5px 0 10px; font-size: 8.8pt; }
+  th, td { text-align: left; vertical-align: top; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; border-bottom: 1px solid #b9c3ce; }
+  tr { break-inside: avoid; }
+  thead { display: table-header-group; }
+  table.tight td, table.tight th { padding: 2px 5px; }
+  td.nw, th.nw { white-space: nowrap; }
+
+  figure { margin: 8px 0 12px; break-inside: avoid; text-align: center; }
+  figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 5px; display: block; margin: 0 auto; }
+  figcaption { font-size: 8.5pt; color: var(--muted); margin-top: 4px; text-align: left; }
+  figcaption b { color: var(--ink); }
+  figure.side { float: right; width: 44%; margin: 2px 0 8px 14px; }
+  figure.side.narrow { width: 36%; }
+  figure.w80 img { width: 80%; }
+  figure.w70 img { width: 70%; }
+  figure.w55 img { width: 55%; }
+  figure.w55 figcaption { text-align: center; }
+  .row { display: flex; gap: 8px; break-inside: avoid; margin: 8px 0 12px; }
+  .row figure { flex: 1; margin: 0; }
+  .clear { clear: both; }
+
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 6px 10px; border-radius: 0 5px 5px 0; margin: 8px 0 10px; break-inside: avoid; }
+  .warn { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 6px 10px; border-radius: 0 5px 5px 0; margin: 8px 0 10px; break-inside: avoid; }
+  .note p:last-child, .warn p:last-child { margin: 0; }
+  .ui { font-weight: 600; white-space: nowrap; }
+  .path { color: var(--muted); }
+
+  /* annotated screenshot */
+  .annot { position: relative; display: block; }
+  .annot img { width: 100%; }
+  .badge { position: absolute; width: 17px; height: 17px; border-radius: 50%; background: #d92d20; color: #fff;
+           font: 700 9pt/17px "Segoe UI", system-ui, sans-serif; text-align: center; box-shadow: 0 0 0 2px #fff; }
+  ol.legend { columns: 2; column-gap: 22px; font-size: 9pt; padding-left: 0; list-style: none; }
+  ol.legend li { break-inside: avoid; margin: 0 0 4px; display: flex; gap: 6px; }
+  ol.legend .num { flex: 0 0 17px; height: 17px; border-radius: 50%; background: #d92d20; color: #fff; font-weight: 700; font-size: 8.5pt; text-align: center; line-height: 17px; margin-top: 1px; }
+
+  ol.steps { counter-reset: step; list-style: none; padding-left: 0; }
+  ol.steps > li { counter-increment: step; position: relative; padding-left: 28px; margin-bottom: 6px; break-inside: avoid; }
+  ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%;
+                          background: var(--accent); color: #fff; font-weight: 700; font-size: 9pt; text-align: center; line-height: 20px; }
+
+  /* cover */
+  .cover { page: cover; height: 9.4in; display: flex; flex-direction: column; }
+  .cover .band { background: var(--accent); color: #fff; border-radius: 10px; padding: 28px 30px 24px; }
+  .cover .band .kicker { font-size: 10pt; letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
+  .cover .band h1 { color: #fff; border: 0; font-size: 30pt; margin: 6px 0 4px; padding: 0; }
+  .cover .band p { font-size: 11.5pt; margin: 0; opacity: .95; }
+  .cover .meta { color: var(--muted); font-size: 9pt; margin: 10px 2px 0; }
+  .toc { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+  .toc h2 { grid-column: 1 / -1; font-size: 11pt; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+  .toc ol { list-style: none; padding: 0; margin: 0; }
+  .toc li { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px dotted var(--line); font-size: 10pt; }
+  .toc li .n { color: var(--accent); font-weight: 700; min-width: 16px; }
+  .toc .apx li .n { color: #6b7787; }
+  .toc li small { color: var(--muted); margin-left: auto; font-size: 8.5pt; }
+  .cover .how { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .cover .how div { background: var(--soft); border-radius: 8px; padding: 9px 11px; font-size: 9pt; }
+  .cover .how b { display: block; color: var(--accent); margin-bottom: 2px; }
+
+  svg text { font-family: "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================== cover -->
+<section class="cover">
+  <div class="band">
+    <div class="kicker">MEEN 402 · Texas A&amp;M University · Variable Stiffness capstone</div>
+    <h1>VSBC Tensile Tester</h1>
+    <p>Operator and developer manual: the touchscreen app, running a test, calibration, the DIC camera, and how the code fits together.</p>
+  </div>
+  <p class="meta">Covers app version 2.2.0 and firmware 2.3.0 (serial protocol 3). The full reference is <code>README.md</code> and the files in <code>docs/</code>; this manual is the short version. Screenshots are of the real app, running against its built-in simulator.</p>
+
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><span class="n">1</span><a href="#what">What this is</a></li>
+      <li><span class="n">2</span><a href="#quick">Quick start</a></li>
+      <li><span class="n">3</span><a href="#tour">A tour of the window</a></li>
+      <li><span class="n">4</span><a href="#test">Running a test</a></li>
+      <li><span class="n">5</span><a href="#cal">First-time calibration</a></li>
+      <li><span class="n">6</span><a href="#camera">Camera and DIC</a></li>
+      <li><span class="n">7</span><a href="#files">Your files</a></li>
+      <li><span class="n">8</span><a href="#trouble">Troubleshooting</a></li>
+      <li><span class="n">9</span><a href="#code">The codebase, for developers</a></li>
+    </ol>
+    <ol class="apx">
+      <li><span class="n">A</span><a href="#apx-cli">Command-line reference</a></li>
+      <li><span class="n">B</span><a href="#apx-proto">Serial protocol and Serial Monitor</a></li>
+      <li><span class="n">C</span><a href="#apx-config">config.toml settings</a></li>
+      <li><span class="n">D</span><a href="#apx-hw">Hardware, wiring and bring-up</a></li>
+      <li><span class="n">E</span><a href="#apx-files">Output files in full</a></li>
+      <li><span class="n">F</span><a href="#apx-preflight">Start-test errors and warnings</a></li>
+      <li><span class="n">G</span><a href="#apx-safety">Safety and limitations</a></li>
+      <li><span class="n">H</span><a href="#apx-misc">Legacy sketches, to-do list, references</a></li>
+    </ol>
+  </nav>
+
+  <div class="how">
+    <div><b>Running tests?</b>Read 3 and 4. Section 8 when something goes wrong.</div>
+    <div><b>Setting up the machine?</b>Read 2 and 5, then Appendix D's bring-up checklist.</div>
+    <div><b>Changing the code?</b>Read 9, then Appendix B (protocol) and C (settings).</div>
+  </div>
+</section>
+
+<!-- ============================================================== 1 -->
+<section class="chapter" id="what">
+<h1><span class="n">1</span>What this is</h1>
+<p>The tester pulls a specimen apart at a constant rate and records the load. Two stepper motors (Stepperonline 23HS30-3004S, each on a DM542T V4.0 driver) turn two 5&nbsp;mm-lead ball screws that move the crosshead in lockstep. A load cell on a SparkFun HX711 amplifier measures the force, and a Basler camera films the specimen for DIC (digital image correlation).</p>
+<p>The work is split between two computers. The <b>Arduino Mega 2560</b> does everything that needs exact timing: it steps both motors from a hardware timer, reads the load cell, and stops the motors <i>by itself</i> on overload, specimen break, travel limits or a silent host. The <b>Raspberry Pi 5</b> runs the Python app <code>vsbc</code>: the touchscreen GUI, test procedures, calibration wizards, the camera, and all the files.</p>
+
+<figure>
+<svg viewBox="0 0 700 250" width="100%" role="img" aria-label="System diagram">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6776"/></marker></defs>
+  <rect x="10" y="10" width="380" height="230" rx="10" fill="#e6eef8" stroke="#1f5fa8"/>
+  <text x="24" y="32" font-size="13" font-weight="700" fill="#1f5fa8">Raspberry Pi 5 · the app "vsbc"</text>
+  <rect x="26" y="44" width="170" height="44" rx="6" fill="#fff" stroke="#9fb6d4"/><text x="111" y="63" font-size="11" text-anchor="middle" font-weight="600">GUI (touchscreen)</text><text x="111" y="78" font-size="9.5" text-anchor="middle" fill="#5b6776">or the command line</text>
+  <rect x="210" y="44" width="166" height="44" rx="6" fill="#fff" stroke="#9fb6d4"/><text x="293" y="63" font-size="11" text-anchor="middle" font-weight="600">Test &amp; calibration</text><text x="293" y="78" font-size="9.5" text-anchor="middle" fill="#5b6776">procedures, analysis</text>
+  <rect x="26" y="104" width="350" height="34" rx="6" fill="#fff" stroke="#9fb6d4"/><text x="201" y="125" font-size="11" text-anchor="middle" font-weight="600">Machine API · serial link (or the built-in simulator)</text>
+  <rect x="26" y="152" width="200" height="44" rx="6" fill="#fff" stroke="#9fb6d4"/><text x="126" y="171" font-size="11" text-anchor="middle" font-weight="600">Camera process</text><text x="126" y="186" font-size="9.5" text-anchor="middle" fill="#5b6776">.venv-camera · pypylon, pyvale</text>
+  <rect x="240" y="152" width="136" height="44" rx="6" fill="#fff" stroke="#9fb6d4"/><text x="308" y="171" font-size="11" text-anchor="middle" font-weight="600">Outputs/</text><text x="308" y="186" font-size="9.5" text-anchor="middle" fill="#5b6776">data, video, DIC, logs</text>
+  <text x="24" y="224" font-size="9.5" fill="#5b6776">Optional: HX711 on GPIO5/6, readings forwarded to the Mega</text>
+  <rect x="470" y="10" width="220" height="150" rx="10" fill="#f2f5f8" stroke="#5b6776"/>
+  <text x="484" y="32" font-size="13" font-weight="700" fill="#1d2733">Arduino Mega 2560</text>
+  <text x="484" y="54" font-size="10" fill="#1d2733">Timer1 step engine (lockstep)</text>
+  <text x="484" y="72" font-size="10" fill="#1d2733">HX711 load cell (D26 / D27)</text>
+  <text x="484" y="90" font-size="10" fill="#1d2733">Settings in EEPROM</text>
+  <text x="484" y="108" font-size="10" fill="#1d2733">Safety stops, watchdog</text>
+  <text x="484" y="126" font-size="10" fill="#1d2733">One data line per load sample</text>
+  <rect x="470" y="186" width="105" height="50" rx="8" fill="#fff" stroke="#5b6776"/><text x="522" y="207" font-size="10.5" text-anchor="middle" font-weight="600">2 drivers</text><text x="522" y="223" font-size="9.5" text-anchor="middle" fill="#5b6776">+ motors, screws</text>
+  <rect x="585" y="186" width="105" height="50" rx="8" fill="#fff" stroke="#5b6776"/><text x="637" y="207" font-size="10.5" text-anchor="middle" font-weight="600">Load cell</text><text x="637" y="223" font-size="9.5" text-anchor="middle" fill="#5b6776">on the HX711</text>
+  <line x1="376" y1="121" x2="468" y2="90" stroke="#5b6776" stroke-width="1.6" marker-end="url(#ar)" marker-start="url(#ar)"/>
+  <text x="392" y="94" font-size="9.5" fill="#5b6776" transform="rotate(-18 392 94)">USB serial, 115200</text>
+  <line x1="522" y1="160" x2="522" y2="184" stroke="#5b6776" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="637" y1="184" x2="637" y2="162" stroke="#5b6776" stroke-width="1.6" marker-end="url(#ar)"/>
+  <rect x="400" y="200" width="56" height="34" rx="6" fill="#fff" stroke="#5b6776"/><text x="428" y="221" font-size="10" text-anchor="middle" font-weight="600">Camera</text>
+  <line x1="398" y1="214" x2="228" y2="178" stroke="#5b6776" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="300" y="214" font-size="9" fill="#5b6776">USB 3</text>
+</svg>
+<figcaption><b>Figure 1.</b> The two computers and what each one does. The Mega makes every stop decision, so a frozen Pi cannot let a test run on.</figcaption>
+</figure>
+
+<p>Everything the operator touches is in the GUI. The Mega's firmware also works on its own from the Arduino IDE Serial Monitor (Appendix B), which is useful for bring-up. On a PC without hardware, <code>vsbc gui --sim</code> runs the whole app against a simulated Mega and camera that behave like the real ones.</p>
+</section>
+
+<!-- ============================================================== 2 -->
+<section class="chapter cont" id="quick">
+<h1><span class="n">2</span>Quick start</h1>
+<h2>On the Raspberry Pi</h2>
+<ol class="steps">
+  <li>Install, from a Pi with Raspberry Pi OS and internet:
+<pre><code>sudo apt update &amp;&amp; sudo apt install -y git
+git clone https://github.com/Aidan-Jones/VSBC_driver.git
+cd VSBC_driver
+bash scripts/install_pi.sh     # packages, Python env, arduino-cli, desktop launcher</code></pre></li>
+  <li><b>Log out and back in once</b> (or reboot). This gives your user access to the serial port and the GPIO pins.</li>
+  <li>Upload the firmware, check the load cell, and start the app:
+<pre><code>vsbc flash        # compile and upload the firmware to the Mega
+vsbc loadcell     # raw counts and sample rate for 5 s
+vsbc              # the GUI (also in the desktop menu as "VSBC Tensile Tester")</code></pre></li>
+  <li>For the DIC camera, add its environment once (about 1&nbsp;GB, 10–20 min), then reboot:
+<pre><code>bash scripts/install_pi.sh --camera
+vsbc camera check     # frame rate, dropped frames, disk speed, a small pyvale DIC</code></pre></li>
+</ol>
+<p>To update later: <code>git pull</code>, run <code>install_pi.sh</code> again, and <code>vsbc flash</code> if the app says the firmware changed. <code>config.toml</code>, the Python environments and <code>Outputs/</code> are not in git, so updating leaves them alone. If the shell says <code>vsbc: command not found</code>, the install script stopped at an error: run it again and read its last lines.</p>
+
+<h2>On a Windows, macOS or Linux PC (with or without hardware)</h2>
+<pre><code>py -3.12 -m venv $HOME\.venvs\vsbc          # Windows; keep it outside OneDrive
+&amp; $HOME\.venvs\vsbc\Scripts\Activate.ps1
+pip install -e ".[gui,dev]"
+vsbc gui --sim                               # the whole app against the simulator</code></pre>
+<p>On macOS or Linux: <code>python3 -m venv ~/.venvs/vsbc &amp;&amp; source ~/.venvs/vsbc/bin/activate</code>, then the same two commands.</p>
+<p>With a Mega plugged in, leave out <code>--sim</code>. Python 3.11 or newer is needed. Keep <code>Outputs/</code> off OneDrive: a camera recording writes gigabytes.</p>
+</section>
+
+<!-- ============================================================== 3 -->
+<section class="chapter cont" id="tour">
+<h1><span class="n">3</span>A tour of the window</h1>
+<p>The window has a bar along the top, live readouts, and two sets of tabs: what you <i>look at</i> on the left, and what you <i>do</i> on the right, in the order of the work.</p>
+
+<figure>
+  <div class="annot">
+    <img src="img/02_checklist.png" alt="Main window, connected">
+    <span class="badge" style="left:25.6%; top:0.6%">1</span>
+    <span class="badge" style="left:71.4%; top:0.6%">2</span>
+    <span class="badge" style="left:88.4%; top:0.6%">3</span>
+    <span class="badge" style="left:21%; top:9.5%">4</span>
+    <span class="badge" style="left:93%; top:9.5%">5</span>
+    <span class="badge" style="left:17.4%; top:15.4%">6</span>
+    <span class="badge" style="left:60.4%; top:15.4%">7</span>
+    <span class="badge" style="left:94%; top:22.6%">8</span>
+    <span class="badge" style="left:49.5%; top:35%">9</span>
+    <span class="badge" style="left:13.6%; top:96%">10</span>
+  </div>
+  <figcaption><b>Figure 2.</b> Connected to the simulator, camera running, one step left before a test.</figcaption>
+</figure>
+
+<ol class="legend">
+  <li><span class="num">1</span><span><b>Port and Connect.</b> Pick the Mega's port, "Auto-detect" or "Simulator". The dot is grey when offline, amber while connecting, green on the Mega, purple on the simulator.</span></li>
+  <li><span class="num">2</span><span><b>Ready chip.</b> <span class="ui">✓ Ready</span> or <span class="ui">2 steps before a test</span>. Tap it to see the checklist.</span></li>
+  <li><span class="num">3</span><span><b>STOP</b> (or <kbd>Esc</kbd> / <kbd>Space</kbd>) stops the motors at once. Always enabled. Any command sent during a move also stops it.</span></li>
+  <li><span class="num">4</span><span><b>Readouts:</b> load, crosshead position, and extension since the test started. Each card's top edge has its plot curve's colour.</span></li>
+  <li><span class="num">5</span><span><b>Machine state:</b> grey OFFLINE, blue IDLE, amber MOVE, green RUN/TEST.</span></li>
+  <li><span class="num">6</span><span><b>Left tabs</b>, to look at: <span class="ui">Camera</span> (live preview), <span class="ui">Live</span> (plots), <span class="ui">Results</span> (a finished test).</span></li>
+  <li><span class="num">7</span><span><b>Right tabs</b>, to do things: <span class="ui">Test</span> → <span class="ui">Machine</span> → <span class="ui">Camera</span> → <span class="ui">Outputs</span> → <span class="ui">System</span>.</span></li>
+  <li><span class="num">8</span><span><b>Ready to test</b>: what is still to do, in order, each with a button that takes you there. Amber ⚠ lines are worth a look but don't block the test.</span></li>
+  <li><span class="num">9</span><span><b>Camera preview</b> with the ROI (region of interest), seed point and notch tip drawn on it.</span></li>
+  <li><span class="num">10</span><span><b>Status bar:</b> the last message (green after a test, red after a safety stop); on the right, post-processing, camera state and free disk space.</span></li>
+</ol>
+<p><b>Warnings</b> (load cell not found, not calibrated, position not referenced, storage low…) appear in a banner under the readouts. <span class="ui">×</span> hides them until they happen again. Red ones (connection lost, disk almost full, camera stopped recording) stay until their cause is gone. A greyed-out button explains why in its tool tip, and under <span class="ui">Start test</span> the reason is spelled out.</p>
+
+<h2>The left tabs</h2>
+<ul>
+  <li><b>Camera</b> (the default): live preview, <span class="ui">Exposure ±</span>, <span class="ui">1:1 zoom</span>, <span class="ui">Edit ROI</span>, <span class="ui">● Record</span> and <span class="ui">⚡ HIGH SPEED</span>. See section 6.</li>
+  <li><b>Live</b>: <span class="ui">Load – extension</span> for the current test, or <span class="ui">Load &amp; position – time</span> for the last 60&nbsp;s.</li>
+  <li><b>Results</b>: one test picker over two pages, <span class="ui">Overview</span> (frames, crack frames, plots, summary) and <span class="ui">DIC analysis</span>. Greyed out while a test or recording runs, so reading frames never competes with the camera for the disk.</li>
+</ul>
+
+<h2>The right tabs</h2>
+<table class="tight">
+  <tr><th>Tab</th><th>What it is for</th></tr>
+  <tr><td class="ui">Test</td><td>The checklist, the specimen (ID, area, gauge length, operator, notes), test settings, <span class="ui">Start test</span>, then the results. Section 4.</td></tr>
+  <tr><td class="ui">Machine</td><td><span class="ui">Jog</span>, <span class="ui">Position reference</span>, <span class="ui">▸ Calibration and limits</span>, <span class="ui">▸ Service: one motor only</span>. Section 5.</td></tr>
+  <tr><td class="ui">Camera</td><td>What records with each test, what runs after it, and <span class="ui">▸ Advanced</span> (time sync, DIC parameters, script check). Section 6.</td></tr>
+  <tr><td class="ui">Outputs</td><td>Disk space, every test and recording, <span class="ui">View results</span>, <span class="ui">Copy to a USB drive</span>, delete tests or only their images, upload zips. Section 7.</td></tr>
+  <tr><td class="ui">System</td><td><span class="ui">Display</span> (theme, units), <span class="ui">Console</span> (raw serial terminal and event log), <span class="ui">Firmware</span> (version check, compile and upload).</td></tr>
+</table>
+<p>Rarely used settings are folded under <b>▸</b> headings; tap one to open it. The app remembers which you leave open, the theme and units, the last test settings and operator, the next specimen ID, the window layout, and the last tab. All of this lives in <code>Outputs/preferences.json</code>.</p>
+<p><b>Touch screen.</b> Drag a page anywhere, even on a button, to scroll it. A tap, or a press held still, still clicks. Plots and the camera view keep their own drag (pan, zoom, ROI). In the Outputs list a tap adds a test to the selection. This turns on by itself when a touch screen is found (<code>touch_scroll</code> under <code>[gui]</code> forces it). The GUI sizes its text to the screen: 13&nbsp;px on 800×480 and 1024×600 panels, 11&nbsp;pt on 1280×800. <code>scale</code> under <code>[gui]</code> overrides that.</p>
+<div class="clear"></div>
+
+<div class="row">
+  <figure><img src="img/10_display.png" alt="System > Display"><figcaption><b>Figure 3a.</b> System › Display: theme and units. data.csv always keeps N and mm columns too.</figcaption></figure>
+  <figure><img src="img/11_console.png" alt="System > Console"><figcaption><b>Figure 3b.</b> System › Console: type commands as in the Serial Monitor.</figcaption></figure>
+  <figure><img src="img/12_firmware.png" alt="System > Firmware"><figcaption><b>Figure 3c.</b> System › Firmware: ✓ when the version matches; compile and upload.</figcaption></figure>
+</div>
+</section>
+
+<!-- ============================================================== 4 -->
+<section class="chapter cont" id="test">
+<h1><span class="n">4</span>Running a test</h1>
+<p>The <b>Ready to test</b> list at the top of the Test tab walks you through the setup in order; <span class="ui">Start test</span> stays greyed out until every required step is done.</p>
+<ol class="steps">
+  <li><b>Connect.</b> Pick the port (or Auto-detect) and press <span class="ui">Connect</span>. Opening the port resets the Mega, which forgets the position.</li>
+  <li><b>Load cell calibrated.</b> Done once and stored on the Mega (section 5). The button opens the wizard.</li>
+  <li><b>Position reference.</b> The motors are open loop: the Mega only knows the position relative to a zero you give it. Jog to your reference (for example the grips at a marked gap), then <span class="ui">Machine › Position reference › Set current position to 0</span>. <span class="ui">Restore last saved position</span> puts back the position saved when the app last closed cleanly. Only use it if the crosshead hasn't moved since.</li>
+  <li><b>Both motors selected.</b> Only after service work with one motor.</li>
+  <li><b>Specimen ID.</b> Used in the results folder name. It counts up after each test (A1 → A2, S-09 → S-10).</li>
+  <li><b>Camera</b>, if it records with the test: running, with an ROI drawn (section 6). Without the camera the test runs unrecorded, after a warning.</li>
+</ol>
+<p>Mount the specimen and jog to take up slack. Then check the <b>test settings</b>:</p>
+<table class="tight">
+  <tr><th>Setting</th><th>Meaning</th></tr>
+  <tr><td class="ui">Rate</td><td>Crosshead speed, 0.12 to 600 mm/min (ASTM D638 uses 5 or 50).</td></tr>
+  <tr><td class="ui">Max extension</td><td>The test stops here at the latest. Start position + max extension must be inside the travel limits.</td></tr>
+  <tr><td class="ui">Area, Gauge length</td><td>Optional. With them, the data and results include stress, strain, UTS and apparent modulus.</td></tr>
+  <tr><td class="ui">▸ Stop conditions</td><td><b>Stop at load</b> (optional); <b>Break: drop from peak</b> (default 40&nbsp;%, two samples in a row); <b>Break: min peak</b> (arms break detection only above this load); <b>tare before starting</b>; <b>return afterwards</b>. The folded header lists the current values.</td></tr>
+</table>
+
+<figure>
+  <img src="img/04_test_result.png" alt="Test finished">
+  <figcaption><b>Figure 4.</b> A finished test: the load–extension curve on the left, the result cards and summary on the right. The simulator's specimen breaks at 1.6&nbsp;mm.</figcaption>
+</figure>
+
+<p>Press <span class="ui">Start test</span>. The app checks the setup and lists anything that stops the test (Appendix F). It then tares (if selected) and sends the per-test limits to the Mega. With the camera on, it shows a <b>hands-off countdown</b> and takes the reference frame. Then the constant-rate move starts.</p>
+<p><b>What ends a test:</b> a detected break, the stop load, the max extension, <span class="ui">STOP</span>, or a safety stop (overload, load cell lost, the app silent for 3&nbsp;s). The Mega decides, not the Pi. The camera stops with the test, and if the camera fails, the test stops too.</p>
+<p><b>Afterwards</b> the Test tab shows <b>Peak load</b>, <b>Extension at peak</b> and <b>Stopped by</b> above the summary, with <span class="ui">View results</span> (the Results tab) and <span class="ui">Open results folder</span>. The files go to a new folder under <code>Outputs/tests/&lt;date&gt;/</code>. With the camera, the video and DIC follow in the background, shown in the status bar.</p>
+<div class="note"><p>Stiffness is fitted between 10&nbsp;% and 40&nbsp;% of the peak load. Displacement comes from the motor steps, so it includes the stretch of the frame and grips: stiffness and modulus are <b>apparent</b> values. DIC strain from the camera does not have this problem. <code>vsbc analyze &lt;folder&gt; --fit 0.2 0.5</code> recalculates with another window.</p></div>
+</section>
+
+<!-- ============================================================== 5 -->
+<section class="chapter cont" id="cal">
+<h1><span class="n">5</span>First-time calibration</h1>
+<figure class="side narrow"><img src="img/08_calibration.png" alt="Machine tab, Calibration and limits"><figcaption><b>Figure 5.</b> <span class="ui">Machine › Calibration and limits</span>, unfolded. "off" in amber: no overload cutoff yet.</figcaption></figure>
+<p>All calibration is stored in the Mega's EEPROM, so the Mega is the source of truth and the same calibration works from the Pi and from the Arduino IDE. Each calibration done in the app also writes a timestamped record to <code>Outputs/calibration/</code>, and every test's <code>meta.json</code> includes the calibration in use. Everything is under <span class="ui">Machine › Calibration and limits</span>. Do it in this order the first time:</p>
+<ol class="steps">
+  <li><b>Direction check.</b> The crosshead moves +1&nbsp;mm; confirm it moved in the tension direction (grips apart). If not, the app flips <code>dir_invert</code> and saves it. You can also check motor B alone, but only with the screws uncoupled.</li>
+  <li><b>Travel (steps/mm).</b> The crosshead moves a set distance (default 20&nbsp;mm). Measure it with calipers or a dial indicator and enter it; repeat if you like. The app sets <code>steps_per_mm = old × commanded ÷ measured</code>. An error above 5&nbsp;% is flagged as a fault to fix, not calibrate away: most likely the microstep DIP switches. Set the position reference again afterwards.</li>
+  <li><b>Load cell.</b> With nothing on it, <span class="ui">Tare + record zero</span>. Choose tension (hanging from / pulling on the load cell) or compression (placed on it); either way tension comes out positive. Apply 2–5 known loads spanning your test range, entering each in g, kg, lb or N and pressing <span class="ui">Record this load</span> (each is averaged over 3&nbsp;s). The app fits a line and shows R² and the worst error. <span class="ui">Save to machine</span> writes it to the Mega and offers to set the overload cutoff to 90&nbsp;% of <code>capacity_n</code>.</li>
+  <li><b>Travel limits.</b> Jog to the lowest and highest safe positions and press <span class="ui">Set lower / upper travel limit here</span>. Moves beyond them are refused.</li>
+  <li><b>Overload cutoff</b> (<code>max_load</code>). Any move stops when |load| reaches it while rising. Set it below the load cell's and the frame's rating.</li>
+</ol>
+<p>If tension later reads negative, <span class="ui">Flip load sign</span> fixes it without recalibrating. The app warns during a test when it sees this, because break detection can't arm.</p>
+<p>From the command line: <code>vsbc calibrate load</code> (add <code>--compression</code> for weights placed on the load cell) and <code>vsbc calibrate travel</code>. With the HX711 wired to the Pi, <code>vsbc calibrate load --no-mega</code> calibrates with no Mega attached; the result is stored on the Mega at the next connection.</p>
+<div class="clear"></div>
+<figure class="w55">
+  <img src="img/13_loadcal_wizard.png" alt="Load-cell calibration wizard">
+  <figcaption><b>Figure 6.</b> The load-cell wizard: (1) tare and record zero, (2) record each known load, (3) save to the machine.</figcaption>
+</figure>
+</section>
+
+<!-- ============================================================== 6 -->
+<section class="chapter cont" id="camera">
+<h1><span class="n">6</span>Camera and DIC</h1>
+<p>The camera code runs as a separate process in its own Python environment (<code>.venv-camera</code>). Its settings (exposure, crop, buffer, DIC parameters) are the USER SETTINGS at the top of <code>camera/capture_dic_live.py</code>; the Camera tab on the right shows them and adds what records with each test.</p>
+
+<h2>Before the first test: the ROI</h2>
+<figure class="side"><img src="img/03_camera_tab.png" alt="Camera tab, right"><figcaption><b>Figure 7.</b> The Camera tab (right): what records with each test, and the size estimate.</figcaption></figure>
+<p>In the left Camera tab, press <span class="ui">Edit ROI</span>:</p>
+<ul>
+  <li>draw the region for DIC, including the notch;</li>
+  <li>place the <b>seed</b> well inside it;</li>
+  <li>place the <b>notch tip</b> and set the crack direction.</li>
+</ul>
+<p>Use <span class="ui">1:1 zoom</span> to check focus and <span class="ui">Exposure ±</span> to adjust (watch <code>sat</code> and <code>bright99.9</code> under the image).</p>
+<h2>How frames are saved</h2>
+<p>The HX711 gives 10 load readings per second as shipped (80 with its RATE jumper cut). The camera runs at its full rate (about 478&nbsp;fps with the 400-row crop) and keeps the last few seconds in RAM.</p>
+<ul>
+  <li><b>All test long</b>, it saves the frame nearest each load reading, so every <code>data.csv</code> row has its own image.</li>
+  <li><b>At the break</b> (when the Mega detects it), the last 0.5&nbsp;s is saved from RAM at the full rate.</li>
+  <li><b><span class="ui">⚡ High speed</span></b> (Camera or Test tab) saves every frame from then on, until you turn it off or the test ends. Press it when the break is near.</li>
+  <li><b>One clock:</b> frames carry a <code>time_s</code> on data.csv's clock, and <code>video.mp4</code> plays in real time from <code>time_s = 0</code>.</li>
+</ul>
+<p><b>After the test</b>, at low priority (paused while the next test records): sync → video → DIC → strain and plots → both crack trackers. Choose which run under <span class="ui">After each test</span>. <span class="ui">● Record</span> makes a recording without a test.</p>
+<div class="clear"></div>
+
+<figure>
+  <img src="img/06_results_overview.png" alt="Results overview">
+  <figcaption><b>Figure 8.</b> <span class="ui">Results › Overview</span> after <span class="ui">Jump to crack</span>: the estimated crack frame (★), the ROI and notch on the frame, and the load–time curve with the full-rate window shaded orange and the crack interval in red.</figcaption>
+</figure>
+
+<h2>Viewing results</h2>
+<p><span class="ui">View results</span> (Test or Outputs tab) opens a test in <span class="ui">Results › Overview</span>. Scrub with the slider, ◀ / ▶ (one frame), ◀◀ / ▶▶ (ten), or <span class="ui">Play</span>. Click the curve to jump there. The <b>crack interval</b> is the frames between the last load reading before the drop and the next one: about 48 frames at 10 readings/s. <span class="ui">Crack frames only</span> loops it with 50 frames either side, and <span class="ui">Jump to crack</span> goes to the frame that changes most inside the ROI. The <span class="ui">Plots</span> and <span class="ui">Summary</span> sub-tabs show plot.png, the scripts' plots, and the frame pairing.</p>
+
+<h2>Running DIC on a test</h2>
+<figure class="side"><img src="img/07_dic_run.png" alt="DIC analysis run"><figcaption><b>Figure 9.</b> <span class="ui">Results › DIC analysis › Run</span>: what to run, its parameters, and the checks.</figcaption></figure>
+<p><span class="ui">Results › DIC analysis</span> runs DIC on the test chosen in the picker. In <span class="ui">Run</span>, tick DIC, strain and plots, and the two crack trackers; the parameters start from the Camera tab's values. A <b>checklist</b> runs first: frames and reference frame 0, ROI and seed, notch tip, sync, frame counts, the camera scripts, pyvale and OpenCV in the camera environment, disk space. <span class="ui">Run</span> is enabled only when nothing is ✗.</p>
+<p>Old trials without an ROI: <span class="ui">Draw ROI on a frame…</span> draws one on the test's own frame 0 (saved in that test's <code>camera/roi.npz</code>, not the Camera tab's). The <span class="ui">DIC</span>, <span class="ui">Strain</span> and <span class="ui">Crack tip</span> sub-tabs show the results; in <span class="ui">Crack tip</span>, click the frame to mark the tip by hand. <span class="ui">Process a folder…</span> runs the after-test steps on any folder, and so does <code>vsbc camera process &lt;folder&gt;</code>.</p>
+<div class="clear"></div>
+</section>
+
+<!-- ============================================================== 7 -->
+<section class="chapter cont" id="files">
+<h1><span class="n">7</span>Your files</h1>
+<p>Everything goes into <code>Outputs/</code> (change it with <code>output_dir</code> in <code>config.toml</code>). One folder per test:</p>
+<pre><code>Outputs/tests/2026-09-29/153012_A1/
+├── data.csv       every sample: time, position, extension, load, ... (Appendix E)
+├── summary.txt    the results, readable (summary.json: the same in N and mm)
+├── plot.png       load vs extension (+ stress vs strain with area and gauge length)
+├── meta.json      settings, firmware, calibration, start/end, stop reason
+├── video.mp4      with the camera: playback time = data.csv time_s
+└── camera/        with the camera: frames, frames.csv, DIC results, plots, crack tips</code></pre>
+<figure class="side narrow"><img src="img/09_outputs.png" alt="Outputs tab"><figcaption><b>Figure 10.</b> The Outputs tab: disk space and every stored test, with its size and result.</figcaption></figure>
+<ul>
+  <li><b>Upload zips.</b> After each test (once video and DIC are done) the app writes <code>Outputs/upload/&lt;date&gt;/&lt;test&gt;.zip</code>: everything except the routine camera frames. Upload that folder, not the test folders (thousands of files). <span class="ui">Make upload zips</span> in the Outputs tab remakes them.</li>
+  <li><b>Copy to a USB drive.</b> Outputs tab: plug it in, press ⟳, select tests, <span class="ui">Copy</span>, then <span class="ui">Eject</span>. Raw camera images are left out unless ticked.</li>
+  <li><b>Freeing space.</b> <span class="ui">Delete camera images</span> frees most of a test's space and keeps data.csv, video, DIC results and plots. <span class="ui">Delete</span> removes a whole test (its zip stays). Old logs can go too.</li>
+  <li><b>Warnings.</b> A banner appears below 10&nbsp;GB free and turns red below 2&nbsp;GB. A camera test that would not fit is refused. Below 1&nbsp;GB the camera saves only the full-rate frames; below 0.3&nbsp;GB it stops, and the test with it.</li>
+</ul>
+</section>
+
+<!-- ============================================================== 8 -->
+<section class="chapter cont" id="trouble">
+<h1><span class="n">8</span>Troubleshooting</h1>
+<p>The banner and the Start-test messages say what is wrong; this table says what to do. Appendix F lists every message.</p>
+<table>
+  <thead><tr><th style="width:38%">You see</th><th>Do this</th></tr></thead>
+  <tr><td>"No answer from vsbc_firmware", or a protocol mismatch at connect</td><td>The Mega has other firmware (a legacy sketch) or an old version. Upload from <span class="ui">System › Firmware</span> or <code>vsbc flash</code>.</td></tr>
+  <tr><td>"Load cell not responding" / "Load cell stopped responding"</td><td>Check the HX711 wiring. <code>vsbc loadcell</code> (or <code>?</code> in the Serial Monitor) says which wire: no conversions (power, GND or DAT) or readings not answered (CLK or VDD).</td></tr>
+  <tr><td>"Load cell not calibrated"</td><td>Machine › Calibration and limits › <span class="ui">Load cell calibration…</span> (section 5).</td></tr>
+  <tr><td>"Position not referenced"</td><td>Jog to the reference and <span class="ui">Set current position to 0</span>. Needed after every connect.</td></tr>
+  <tr><td>"The Mega reset: set the position reference again"</td><td>The Mega restarted (USB glitch, power). Set the reference again before moving far.</td></tr>
+  <tr><td>"Tension is reading negative…"</td><td><span class="ui">Flip load sign</span> under Calibration and limits. Break detection can't arm until it's fixed.</td></tr>
+  <tr><td>Load-cell sample rate differs from <code>rate_hz</code></td><td>Set <code>rate_hz</code> under <code>[loadcell]</code> to 10 (as shipped) or 80 (RATE jumper cut).</td></tr>
+  <tr><td>"Start position + max extension passes the upper travel limit"</td><td>Lower <span class="ui">Max extension</span>, jog back, or raise the upper travel limit.</td></tr>
+  <tr><td>"The camera is not running … this test is NOT recorded"</td><td>Press <span class="ui">Start camera</span> in the left Camera tab, or start anyway without video.</td></tr>
+  <tr><td>"No usable ROI…" / "No notch tip set"</td><td><span class="ui">Edit ROI</span>. Without them, frames are recorded but DIC or the crack trackers are skipped.</td></tr>
+  <tr><td>"Not enough disk space for the camera"</td><td>Free space in Outputs, save fewer frames (Camera tab), or lower the max extension.</td></tr>
+  <tr><td>Last move stopped: OVERLOAD, LOADCELL, WATCHDOG</td><td>A safety stop by the Mega (Appendix G). Find the cause before the next move.</td></tr>
+  <tr><td>Crosshead buzzes, grinds, or travels short</td><td>The motor is stalling (nothing detects this). Lower the rate or raise the driver current.</td></tr>
+</table>
+</section>
+
+<!-- ============================================================== 9 -->
+<section class="chapter" id="code">
+<h1><span class="n">9</span>The codebase, for developers</h1>
+<figure>
+<svg viewBox="0 0 700 215" width="100%" role="img" aria-label="Code architecture">
+  <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6776"/></marker></defs>
+  <g font-size="10.5">
+  <rect x="10" y="10" width="455" height="196" rx="9" fill="#e6eef8" stroke="#1f5fa8"/>
+  <text x="22" y="28" font-weight="700" fill="#1f5fa8" font-size="11.5">GUI process (app .venv: PyQt5, pyqtgraph, NumPy, matplotlib)</text>
+  <rect x="22" y="38" width="200" height="40" rx="5" fill="#fff" stroke="#9fb6d4"/><text x="32" y="55" font-weight="600">vsbc/gui/ · cli.py</text><text x="32" y="70" fill="#5b6776" font-size="9.5">window, panels, wizards, Results</text>
+  <rect x="236" y="38" width="216" height="40" rx="5" fill="#fff" stroke="#9fb6d4"/><text x="246" y="55" font-weight="600">procedures · calibration</text><text x="246" y="70" fill="#5b6776" font-size="9.5">analysis · recorder · plotting</text>
+  <rect x="22" y="90" width="200" height="40" rx="5" fill="#fff" stroke="#9fb6d4"/><text x="32" y="107" font-weight="600">machine.py</text><text x="32" y="122" fill="#5b6776" font-size="9.5">thread-safe API, ping thread</text>
+  <rect x="236" y="90" width="216" height="40" rx="5" fill="#fff" stroke="#9fb6d4"/><text x="246" y="107" font-weight="600">link.py · protocol.py</text><text x="246" y="122" fill="#5b6776" font-size="9.5">reader thread, line parsing</text>
+  <rect x="22" y="142" width="200" height="52" rx="5" fill="#fff" stroke="#9fb6d4"/><text x="32" y="159" font-weight="600">vsbc/camera/client.py</text><text x="32" y="174" fill="#5b6776" font-size="9.5">postprocess.py (job queue)</text><text x="32" y="188" fill="#5b6776" font-size="9.5">results.py, sync.py, roi.py</text>
+  <rect x="236" y="142" width="216" height="52" rx="5" fill="#fff" stroke="#9fb6d4"/><text x="246" y="159" font-weight="600">sim.py · loadcell_pi.py</text><text x="246" y="174" fill="#5b6776" font-size="9.5">simulated Mega · HX711 on GPIO</text><text x="246" y="188" fill="#5b6776" font-size="9.5">storage · share · units · config</text>
+  <rect x="490" y="10" width="200" height="88" rx="9" fill="#f2f5f8" stroke="#5b6776"/>
+  <text x="502" y="28" font-weight="700" font-size="11.5">Camera process</text>
+  <text x="502" y="46" fill="#1d2733">vsbc/camera/service.py</text>
+  <text x="502" y="62" fill="#1d2733">+ camera/*.py scripts</text>
+  <text x="502" y="80" fill="#5b6776" font-size="9.5">.venv-camera: pypylon, pyvale, cv2</text>
+  <rect x="490" y="118" width="200" height="88" rx="9" fill="#f2f5f8" stroke="#5b6776"/>
+  <text x="502" y="136" font-weight="700" font-size="11.5">Mega firmware</text>
+  <text x="502" y="154" fill="#1d2733">firmware/vsbc_firmware/</text>
+  <text x="502" y="170" fill="#5b6776" font-size="9.5">motion · tester · commands</text>
+  <text x="502" y="186" fill="#5b6776" font-size="9.5">settings (EEPROM) · loadcell_hx711</text>
+  </g>
+  <line x1="452" y1="110" x2="488" y2="150" stroke="#5b6776" stroke-width="1.6" marker-end="url(#ar2)" marker-start="url(#ar2)"/>
+  <line x1="222" y1="158" x2="488" y2="70" stroke="#5b6776" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#ar2)" marker-start="url(#ar2)"/>
+  <text x="470" y="125" font-size="9" fill="#5b6776">USB serial</text>
+</svg>
+<figcaption><b>Figure 11.</b> Processes and the main modules. Dashed: the GUI and the camera process talk over a local <code>multiprocessing.connection</code> socket.</figcaption>
+</figure>
+
+<h2>Where things are</h2>
+<table class="tight">
+  <tr><th class="nw">Path</th><th>What it holds</th></tr>
+  <tr><td class="nw"><code>vsbc/</code></td><td><code>machine.py</code> (high-level, thread-safe API), <code>link.py</code> (port discovery, reader thread, command/reply), <code>protocol.py</code> (protocol v3 lines), <code>procedures.py</code> (pull-to-failure runner and its preflight), <code>analysis.py</code> (results from extension and load), <code>recorder.py</code> (one folder per test), <code>calibration.py</code> (maths and records), <code>plotting.py</code>, <code>sim.py</code> (simulated Mega), <code>loadcell_pi.py</code> (HX711 on the Pi), <code>storage.py</code>, <code>share.py</code> (upload zips), <code>units.py</code>, <code>config.py</code>, <code>firmware.py</code> (arduino-cli), <code>cli.py</code>, <code>logs.py</code></td></tr>
+  <tr><td class="nw"><code>vsbc/gui/</code></td><td><code>app.py</code> (main window, top bar, readouts, tabs), <code>panels.py</code> (Test, Jog, Console, Firmware), <code>machine_panel.py</code> (Machine and System containers), <code>calibration_panel.py</code>, <code>wizards.py</code> (load-cell and travel dialogs), <code>camera_view.py</code> / <code>camera_panel.py</code>, <code>results_view.py</code>, <code>dic_view.py</code>, <code>roi_dialog.py</code>, <code>outputs_panel.py</code>, <code>units_panel.py</code>, <code>plots.py</code>, <code>readiness.py</code> (the checklist), <code>common.py</code> (theme, scaling, touch scrolling)</td></tr>
+  <tr><td class="nw"><code>vsbc/camera/</code></td><td>The app's side of the camera: <code>client.py</code> (starts and talks to the camera process), <code>service.py</code> (the camera process itself), <code>simcam.py</code>, <code>sync.py</code> (one clock for data, frames and video), <code>postprocess.py</code> / <code>jobs.py</code> (after-test queue), <code>results.py</code> / <code>dic_results.py</code> (read back for the GUI), <code>roi.py</code>, <code>scripts.py</code>, <code>tiff.py</code></td></tr>
+  <tr><td class="nw"><code>camera/</code></td><td>The swappable DIC scripts: <code>capture_dic_live.py</code> (USER SETTINGS, <code>configure_camera()</code>, <code>dic_worker()</code>), <code>pyvale_dic_run.py</code>, the two crack trackers, two viewers. Keep the interface in <code>camera/README.md</code> and drop new versions in.</td></tr>
+  <tr><td class="nw"><code>firmware/</code></td><td><code>vsbc_firmware/</code>: <code>motion.*</code> (Timer1 step engine), <code>tester.*</code> (samples, safety, telemetry), <code>commands.*</code> (parser), <code>settings.*</code> (EEPROM), <code>loadcell_hx711.cpp</code>, <code>config.h</code>. <code>legacy/</code>: the two old motion-only sketches.</td></tr>
+  <tr><td class="nw"><code>scripts/</code>, <code>tests/</code>, <code>docs/</code></td><td>Pi installer and desktop launcher · the pytest suite · <code>protocol.md</code>, <code>hardware.md</code> and this manual's source (<code>docs/manual/</code>)</td></tr>
+</table>
+
+<h2>Threads and processes</h2>
+<ul>
+  <li><b>Serial:</b> a reader thread in <code>link.py</code> parses every line from the Mega and hands it to listeners; <code>machine.py</code> adds a ping thread that keeps the Mega's 3&nbsp;s watchdog fed. The GUI's listener only puts messages in a queue; a Qt timer (<code>refresh_hz</code>, 25/s) drains it and updates the widgets. Never touch Qt widgets from another thread: use <code>MainWindow.post()</code> or <code>run_async()</code>.</li>
+  <li><b>Long jobs</b> (a test, calibration, connecting) run in worker threads through <code>run_async()</code>, with a callback on the GUI thread.</li>
+  <li><b>Camera:</b> a separate process in <code>.venv-camera</code>, so pyvale's PyQt6, OpenCV's Qt and NumPy 2 never load into the GUI. Post-processing jobs are separate processes too, one at a time, at low priority.</li>
+</ul>
+
+<h2>Where each setting lives</h2>
+<table class="tight">
+  <tr><th>Kind of setting</th><th>Where</th><th>Changed by</th></tr>
+  <tr><td>App settings (port, output folder, load-cell wiring, defaults, GUI, storage, camera workflow)</td><td><code>config.toml</code> (Appendix C)</td><td>Editing the file</td></tr>
+  <tr><td>Machine calibration (steps/mm, load scale and zero, limits, overload cutoff, directions)</td><td>Mega EEPROM</td><td>Machine tab, or <code>SET</code> + <code>SAVE</code></td></tr>
+  <tr><td>Camera (exposure, crop, frame rate, RAM buffer, DIC parameters)</td><td><code>camera/capture_dic_live.py</code></td><td>Editing USER SETTINGS; <span class="ui">Reload scripts</span></td></tr>
+  <tr><td>Firmware constants (pins, <code>STEPS_PER_REV</code>, screw lead, speed cap, HX711 pins)</td><td><code>firmware/vsbc_firmware/config.h</code></td><td>Editing, then upload again</td></tr>
+  <tr><td>Remembered GUI choices (theme, units, layout, last test settings)</td><td><code>Outputs/preferences.json</code></td><td>The GUI, automatically</td></tr>
+</table>
+
+<h2>Rules that keep it working</h2>
+<div class="warn">
+<p><b>A protocol change is three changes:</b> the firmware (<code>commands.cpp</code>, <code>tester.cpp</code>, <code>motion.cpp</code>), the simulator <code>vsbc/sim.py</code>, and <code>docs/protocol.md</code>, together. The tests run against the simulator. The protocol version must match exactly (the app refuses to connect otherwise); a firmware version mismatch only warns.</p>
+</div>
+<div class="warn">
+<p><b>Never import cv2, pyvale or pypylon in the GUI process.</b> The camera process and the post-processing jobs import only the standard library and NumPy on the app side.</p>
+</div>
+<p>Changing the microstep setting means changing <code>STEPS_PER_REV</code> in <code>config.h</code>, <code>STEPS_PER_REV</code> in <code>vsbc/sim.py</code> and <code>FIRMWARE_PULSES_PER_REV</code> in <code>vsbc/calibration.py</code>, plus the DIP switches on both drivers.</p>
+
+<h2>Tests and tools</h2>
+<pre><code>pip install -e ".[gui,dev]"
+pytest                          # the whole suite, against the simulators
+vsbc gui --sim                  # try GUI changes without hardware
+vsbc flash --compile-only       # compile the firmware (needs arduino-cli)
+python docs/manual/build_manual.py   # rebuild this manual (screenshots + PDF)</code></pre>
+<p>The GUI tests drive the real window offscreen (<code>QT_QPA_PLATFORM=offscreen</code>). The camera tests and <code>--sim</code> run the camera process with this environment's Python and the simulated camera; with <code>opencv-python-headless</code> installed they also make the video.</p>
+</section>
+
+<!-- ============================================================== A -->
+<section class="chapter appendix" id="apx-cli">
+<h1><span class="n">A</span>Command-line reference</h1>
+<p>Global options: <code>--config FILE</code>, <code>--output-dir DIR</code>, <code>-v</code> (debug logging), <code>--version</code>. Commands that talk to the machine also take <code>--port</code> (default: auto-detect), <code>--sim</code> and <code>--loadcell pi|mega</code>. Values are in mm and N; printed results use the display units. <code>vsbc &lt;command&gt; --help</code> lists everything; <code>python -m vsbc</code> works too.</p>
+<table>
+  <thead><tr><th style="width:40%">Command</th><th>What it does</th></tr></thead>
+  <tr><td><code>vsbc</code>, <code>vsbc gui [--fullscreen]</code></td><td>Start the GUI.</td></tr>
+  <tr><td><code>vsbc terminal</code></td><td>Serial terminal with a session log. Sends STOP on exit.</td></tr>
+  <tr><td><code>vsbc test --specimen ID</code><br><code>[--rate MM_MIN] [--max-ext MM] [--stop-load N] [--break-drop %] [--break-min N] [--area MM2] [--gauge MM] [--no-tare] [--return] [--operator ..] [--notes ..] [-y]</code></td><td>Pull-to-failure test without the GUI (e.g. over SSH), with a live text readout. Ctrl+C stops it. <code>-y</code> starts without confirming warnings.</td></tr>
+  <tr><td><code>vsbc calibrate load|travel [--compression] [--no-mega]</code></td><td>Calibration with text prompts. <code>--no-mega</code>: load cell on the Pi alone; stored on the Mega at the next connection (kept in <code>Outputs/pending_load_calibration.json</code> until then).</td></tr>
+  <tr><td><code>vsbc analyze PATH [--fit LO HI] [--break-drop %] [--break-min N] [--area MM2] [--gauge MM]</code></td><td>Recalculate a test's summary and plot. <code>--fit</code>: stiffness window as fractions of peak (default 0.10 0.40).</td></tr>
+  <tr><td><code>vsbc camera check [--sim]</code></td><td>Frame rate and dropped frames, disk write speed, the camera scripts, and a small synthetic pyvale DIC. Run it on the Pi before the first real test.</td></tr>
+  <tr><td><code>vsbc camera process FOLDER [--only video,dic,strain,crack_image,crack_opening] [--load-delay-ms MS]</code></td><td>Sync, video, DIC, strain and crack tips for a test folder or a recording, without the GUI.</td></tr>
+  <tr><td><code>vsbc flash [--port ..] [--cli PATH] [--compile-only]</code></td><td>Compile and upload the firmware with arduino-cli.</td></tr>
+  <tr><td><code>vsbc ports</code></td><td>List serial ports.</td></tr>
+  <tr><td><code>vsbc loadcell [--seconds 5]</code></td><td>Check the load cell where <code>config.toml</code> says it is wired: raw counts, sample rate, and why it isn't responding if so. With <code>source = "pi"</code> it reads the GPIO pins (no Mega needed) and reports discarded readings.</td></tr>
+</table>
+</section>
+
+<!-- ============================================================== B -->
+<section class="chapter appendix" id="apx-proto">
+<h1><span class="n">B</span>Serial protocol and Serial Monitor</h1>
+<p>USB serial at <b>115200 baud</b>, 8N1, ASCII lines (any line ending; a line typed without one is accepted after 100&nbsp;ms). Opening the port resets the Mega: wait for <code>EVT READY</code>. The full contract is <code>docs/protocol.md</code> (protocol v3, firmware 2.3.0). For load readings without the Pi, the HX711 must be wired to the Mega.</p>
+<h2>Lines from the Mega</h2>
+<table class="tight">
+  <tr><th class="nw">Starts with</th><th>Meaning</th></tr>
+  <tr><td><code>OK &lt;CMD&gt; [key=value ...]</code></td><td>Command succeeded. Every command except <code>LC</code> gets exactly one OK or ERR.</td></tr>
+  <tr><td><code>ERR &lt;CMD&gt; &lt;CODE&gt; &lt;message&gt;</code></td><td>Command failed (codes below).</td></tr>
+  <tr><td><code>EVT &lt;NAME&gt; [key=value ...]</code></td><td>Something happened on its own: <code>READY</code>, <code>MOVE_END</code>, <code>LOADCELL state=OK|LOST</code>, <code>OVERLOAD</code>, <code>INPUT</code>.</td></tr>
+  <tr><td><code>D &lt;t_ms&gt; &lt;pos_mm&gt; &lt;load_N&gt; &lt;raw&gt; &lt;state&gt;</code></td><td>One sample, e.g. <code>D 123456.789 12.3450 87.512 1419842 R</code>. Mega clock to 1&nbsp;µs; state <code>I</code> idle, <code>M</code> manual move, <code>R</code> test run.</td></tr>
+  <tr><td><code># &lt;text&gt;</code></td><td>Human-readable text; hosts ignore it.</td></tr>
+</table>
+<h2>Commands</h2>
+<p>Case-insensitive; a one-letter alias can be followed directly by its number (<code>v0.5</code>, <code>m-5</code>). <b>During a move, any command not marked "any time" stops it</b> and gets <code>ERR … BUSY motion stopped</code>.</p>
+<table class="tight">
+  <thead><tr><th class="nw">Command</th><th>Alias</th><th>Any time</th><th>Action</th></tr></thead>
+  <tr><td><code>HELP</code></td><td><code>?</code></td><td>yes</td><td>Command list and current state (and why the load cell is down, if it is)</td></tr>
+  <tr><td><code>ID</code> · <code>STATUS</code> · <code>GET</code></td><td>– · <code>S</code> · –</td><td>yes</td><td>Firmware name/version · current state · every setting</td></tr>
+  <tr><td><code>PING</code> · <code>STREAM ON|OFF</code></td><td></td><td>yes</td><td>Feed the watchdog · a data line per load sample (OFF: every 0.5&nbsp;s while moving)</td></tr>
+  <tr><td><code>STOP</code></td><td><code>X</code></td><td>yes</td><td>Stop; the move ends with <code>EVT MOVE_END reason=STOP</code></td></tr>
+  <tr><td><code>LC &lt;raw&gt;</code></td><td></td><td>yes</td><td>A load reading from the host (only with <code>lc_host 1</code>); no reply</td></tr>
+  <tr><td><code>RATE &lt;mm/s&gt;</code></td><td><code>V</code></td><td></td><td>Rate for all moves, 0.002 to 10&nbsp;mm/s (5&nbsp;mm/min = 0.0833)</td></tr>
+  <tr><td><code>MOVE &lt;±mm&gt;</code> · <code>GOTO &lt;mm&gt;</code> · <code>HOME</code></td><td><code>M</code> · <code>G</code> · <code>H</code></td><td></td><td>Relative move (+ = tension) · absolute move · go to 0</td></tr>
+  <tr><td><code>RUN &lt;±mm&gt;</code></td><td><code>R</code></td><td></td><td>Test move: break detection and stop load armed. Needs a working, calibrated load cell, a reference and both motors.</td></tr>
+  <tr><td><code>ZERO [mm]</code></td><td><code>Z</code></td><td></td><td>Set the current position (default 0) and mark it referenced</td></tr>
+  <tr><td><code>TARE</code> · <code>CAL &lt;N&gt;</code></td><td><code>T</code> · –</td><td></td><td>Zero the load cell · span calibration with a known load (each averages 2&nbsp;s)</td></tr>
+  <tr><td><code>SET &lt;key&gt; &lt;value&gt;</code> · <code>SAVE</code> · <code>DEFAULTS</code></td><td></td><td></td><td>Change a setting in RAM · store to EEPROM · restore defaults in RAM</td></tr>
+  <tr><td><code>MOTORS AB|A|B</code></td><td></td><td></td><td>Service mode: pulse one driver only (clears "referenced")</td></tr>
+</table>
+<div class="row" style="gap:14px">
+<div style="flex:1">
+<h3>Error codes</h3>
+<table class="tight">
+  <tr><td><code>UNKNOWN</code></td><td>Unknown command</td></tr>
+  <tr><td><code>ARG</code></td><td>Bad or missing argument, unknown key</td></tr>
+  <tr><td><code>RANGE</code></td><td>Value out of range</td></tr>
+  <tr><td><code>LIMIT</code></td><td>Outside the soft travel limits, or a limit switch</td></tr>
+  <tr><td><code>BUSY</code></td><td>A move was running (now stopped), or TARE/CAL averaging</td></tr>
+  <tr><td><code>NOLOAD</code></td><td>Load cell not responding</td></tr>
+  <tr><td><code>UNCAL</code></td><td>Load cell not calibrated</td></tr>
+  <tr><td><code>NOREF</code></td><td>Position not referenced</td></tr>
+  <tr><td><code>ESTOP</code></td><td>E-stop input active (if fitted)</td></tr>
+</table>
+</div>
+<div style="flex:1">
+<h3><code>MOVE_END reason=</code></h3>
+<table class="tight">
+  <tr><td><code>DONE</code></td><td>Reached the target</td></tr>
+  <tr><td><code>STOP</code></td><td>STOP, or another command arrived</td></tr>
+  <tr><td><code>BREAK</code></td><td>Load fell <code>break_drop</code>&nbsp;% below peak on two samples</td></tr>
+  <tr><td><code>LOAD</code></td><td>|load| reached <code>stop_load</code></td></tr>
+  <tr><td><code>OVERLOAD</code></td><td>|load| reached <code>max_load</code> while rising, or ADC saturated</td></tr>
+  <tr><td><code>LOADCELL</code></td><td>No load reading for 0.5&nbsp;s during a RUN</td></tr>
+  <tr><td><code>WATCHDOG</code></td><td>No line from the host for <code>watchdog_ms</code></td></tr>
+  <tr><td><code>TIMEOUT</code></td><td>Move took its expected time + 1&nbsp;s</td></tr>
+  <tr><td><code>LIMIT</code> / <code>ESTOP</code></td><td>Limit switch / E-stop input (if fitted)</td></tr>
+</table>
+</div>
+</div>
+<h2>Settings (<code>GET</code>, <code>SET</code>)</h2>
+<table class="tight">
+  <thead><tr><th class="nw">Key</th><th>Default</th><th>Meaning</th></tr></thead>
+  <tr><td colspan="3"><b>Saved by SAVE (EEPROM): machine calibration</b></td></tr>
+  <tr><td><code>steps_per_mm</code></td><td>640</td><td>Crosshead steps per mm (3200 steps/rev ÷ 5&nbsp;mm lead); 320–1280</td></tr>
+  <tr><td><code>load_scale</code> / <code>load_offset</code></td><td>0 / 0</td><td>Counts per newton (0 = not calibrated; negative is fine) / counts at zero load</td></tr>
+  <tr><td><code>max_load</code></td><td>0</td><td>N; any move stops when |load| reaches it while rising (0 = off)</td></tr>
+  <tr><td><code>min_pos</code> / <code>max_pos</code></td><td>−100 / 100</td><td>mm; soft travel limits from the reference zero</td></tr>
+  <tr><td><code>dir_invert</code> / <code>invert_b</code></td><td>0 / 0</td><td>Swap which DIR level is + (tension) / motor B turns opposite to A</td></tr>
+  <tr><td colspan="3"><b>Not saved: set by the host before each RUN or at connect</b></td></tr>
+  <tr><td><code>stop_load</code>, <code>break_drop</code>, <code>break_min</code></td><td>0</td><td>Stop load (N), break threshold (%), peak needed before break detection arms (N); 0 = off</td></tr>
+  <tr><td><code>watchdog_ms</code></td><td>0</td><td>Stop a move after this long without a line; the app sets 3000 and pings every 0.5&nbsp;s</td></tr>
+  <tr><td><code>lc_host</code></td><td>0</td><td>0 = the Mega's own HX711; 1 = readings sent by the host with <code>LC</code></td></tr>
+</table>
+<p>Safety checks use the median of the last three samples, so one bad sample cannot trigger a stop. Single-point calibration by hand: <code>TARE</code>, hang a known weight, <code>CAL &lt;newtons&gt;</code>, <code>SAVE</code>.</p>
+</section>
+
+<!-- ============================================================== C -->
+<section class="chapter appendix" id="apx-config">
+<h1><span class="n">C</span>config.toml settings</h1>
+<p>Optional. Copy <code>config.example.toml</code> to <code>config.toml</code> in the repository folder, or to <code>~/.config/vsbc/config.toml</code>. The values below are the defaults. Machine calibration is <b>not</b> here: it is on the Mega (Machine › Calibration and limits).</p>
+<table class="tight">
+  <thead><tr><th class="nw">Key</th><th class="nw">Default</th><th>Meaning</th></tr></thead>
+  <tr><td><code>output_dir</code></td><td><code>"Outputs"</code></td><td>Tests, calibration records, logs (relative to the config file)</td></tr>
+  <tr><td><code>watchdog_ms</code></td><td>3000</td><td>The Mega stops a move if the app is silent this long</td></tr>
+  <tr><td colspan="3"><b>[serial]</b></td></tr>
+  <tr><td><code>port</code></td><td>(auto)</td><td><code>"/dev/ttyACM0"</code> or <code>"COM5"</code>; leave out to auto-detect</td></tr>
+  <tr><td><code>baud</code>, <code>ready_timeout_s</code>, <code>log_data_lines</code></td><td>115200, 4.0, false</td><td>Baud rate; wait for the Mega's reset; also log data lines in the serial log</td></tr>
+  <tr><td colspan="3"><b>[loadcell]</b></td></tr>
+  <tr><td><code>source</code></td><td><code>"mega"</code></td><td><code>"mega"</code> (D26/D27) or <code>"pi"</code> (GPIO, below)</td></tr>
+  <tr><td><code>dout_pin</code>, <code>sck_pin</code>, <code>gain</code></td><td>5, 6, 128</td><td>Pi GPIO (BCM) for DAT and CLK; HX711 gain (128 or 64 ch A, 32 ch B)</td></tr>
+  <tr><td><code>rate_hz</code></td><td>10</td><td>HX711 readings/s: 10 as shipped, 80 with the RATE jumper cut. Warns when the measured rate differs.</td></tr>
+  <tr><td><code>capacity_n</code>, <code>gravity</code></td><td>500.0, 9.80665</td><td>Load-cell capacity (sets the default overload cutoff); converts calibration masses to N</td></tr>
+  <tr><td colspan="3"><b>[test]</b>: defaults for new tests</td></tr>
+  <tr><td><code>rate_mm_min</code>, <code>max_extension_mm</code></td><td>5.0, 50.0</td><td>Rate and max extension</td></tr>
+  <tr><td><code>stop_load_n</code>, <code>break_drop_pct</code>, <code>break_min_n</code></td><td>0.0, 40.0, 5.0</td><td>Stop load (0 = off), break threshold (0 = none), min peak for a break</td></tr>
+  <tr><td><code>tare_before</code>, <code>return_after</code>, <code>jog_rate_mm_s</code></td><td>true, false, 2.0</td><td>Tare first; return to start afterwards; jog rate</td></tr>
+  <tr><td colspan="3"><b>[gui]</b></td></tr>
+  <tr><td><code>fullscreen</code>, <code>refresh_hz</code>, <code>time_window_s</code></td><td>false, 25, 60</td><td>Start full screen; GUI refresh rate; time plot window</td></tr>
+  <tr><td><code>font_pt</code>, <code>scale</code></td><td>11, 0</td><td>Text size on 1280×800; 0 = scale from the screen, else a fixed factor</td></tr>
+  <tr><td><code>touch_scroll</code></td><td><code>"auto"</code></td><td>Drag-to-scroll: <code>"auto"</code> (with a touch screen), <code>true</code>, <code>false</code></td></tr>
+  <tr><td colspan="3"><b>[units]</b>: what the GUI shows (System › Display overrides and remembers)</td></tr>
+  <tr><td><code>force</code>, <code>length</code></td><td><code>"N"</code>, <code>"mm"</code></td><td><code>"N"</code>/<code>"lbf"</code>; <code>"mm"</code>/<code>"cm"</code>/<code>"m"</code>/<code>"in"</code></td></tr>
+  <tr><td colspan="3"><b>[storage]</b></td></tr>
+  <tr><td><code>warn_free_gb</code>, <code>critical_free_gb</code></td><td>10.0, 2.0</td><td>Banner warning / red banner</td></tr>
+  <tr><td><code>upload_zips</code></td><td>true</td><td>Make <code>Outputs/upload/&lt;date&gt;/&lt;test&gt;.zip</code> after each test</td></tr>
+  <tr><td colspan="3"><b>[camera]</b>: exposure, crop, buffer and DIC settings are in <code>camera/capture_dic_live.py</code></td></tr>
+  <tr><td><code>enabled</code>, <code>auto_start</code></td><td>true, true</td><td>Show the Camera tabs; start the preview when the app opens</td></tr>
+  <tr><td><code>dir</code>, <code>python</code>, <code>simulate</code></td><td><code>"camera"</code>, <code>""</code>, false</td><td>Scripts folder; camera environment's Python (<code>""</code> = <code>.venv-camera</code>, else the app's); synthetic camera</td></tr>
+  <tr><td><code>record_with_test</code></td><td>true</td><td>Record with every test</td></tr>
+  <tr><td><code>save_mode</code>, <code>match_divisor</code></td><td><code>"match"</code>, 1</td><td><code>"match"</code>: frame nearest each load sample (every Nth sample); <code>"every"</code>; <code>"all"</code></td></tr>
+  <tr><td><code>dump_on_break</code>, <code>break_seconds</code></td><td>true, 0.5</td><td>Save full-rate frames from just before the break, this many seconds</td></tr>
+  <tr><td><code>load_delay_ms</code></td><td>0.0</td><td>HX711 filter lag for pairing frames (measure with a tap test)</td></tr>
+  <tr><td><code>live_dic</code></td><td>false</td><td>DIC during the test (slow on the Pi; can cost frames)</td></tr>
+  <tr><td><code>run_dic</code>, <code>run_strain</code>, <code>strain_animation</code></td><td>true, true, false</td><td>After the test: DIC; strain and plots; strain animation</td></tr>
+  <tr><td><code>crack_tip_image</code>, <code>crack_tip_opening</code></td><td>true, true</td><td>The two crack trackers</td></tr>
+  <tr><td><code>make_video</code>, <code>video_fps</code></td><td>true, 30.0</td><td><code>video.mp4</code> whose playback time equals data.csv <code>time_s</code></td></tr>
+</table>
+</section>
+
+<!-- ============================================================== D -->
+<section class="chapter appendix" id="apx-hw">
+<h1><span class="n">D</span>Hardware, wiring and bring-up</h1>
+<table class="tight">
+  <thead><tr><th>Component</th><th>Part</th><th>Notes</th></tr></thead>
+  <tr><td>Stepper motor ×2</td><td>Stepperonline 23HS30-3004S</td><td>NEMA 23, 1.8°/step, 3.0&nbsp;A/phase</td></tr>
+  <tr><td>Ball screw ×2</td><td>5&nbsp;mm lead, direct coupled</td><td>0.0015625&nbsp;mm per step at 3200 pulses/rev</td></tr>
+  <tr><td>Stepper driver ×2</td><td>Stepperonline DM542T <b>V4.0</b></td><td>18–50&nbsp;VDC; use the V4.0 manual, not generic DM542T tables</td></tr>
+  <tr><td>Controller / host</td><td>Arduino Mega 2560 / Raspberry Pi 5</td><td>Pi OS Bookworm or newer, 64-bit, desktop</td></tr>
+  <tr><td>Load-cell amplifier</td><td>SparkFun HX711 (SEN-13879)</td><td>10 samples/s as shipped, 80 with the RATE jumper cut</td></tr>
+  <tr><td>Camera</td><td>Basler a2A1920-160umBAS</td><td>Mono8, USB 3</td></tr>
+  <tr><td>Load cell, motor supply</td><td colspan="2"><i>To be chosen</i>: set <code>capacity_n</code> in <code>config.toml</code>; the supply must be 18–50&nbsp;VDC</td></tr>
+</table>
+<h2>Driver settings (both drivers identical)</h2>
+<p><b>S2 = 5V</b> (it ships at 24V). DIP switches (down = ON):</p>
+<table class="tight" style="width:auto">
+  <tr><th>SW1</th><th>SW2</th><th>SW3</th><th>SW4</th><th>SW5</th><th>SW6</th><th>SW7</th><th>SW8</th></tr>
+  <tr><td>ON</td><td>OFF</td><td>OFF</td><td>ON</td><td><b>ON</b></td><td><b>ON</b></td><td><b>OFF</b></td><td><b>ON</b></td></tr>
+</table>
+<p>That gives 3.76&nbsp;A peak / 2.69&nbsp;A RMS, full standstill current, and <b>3200 pulses/rev</b>, which must equal <code>STEPS_PER_REV</code> in <code>config.h</code>. Connect each motor before powering its driver. The older 400 and 25000 pulses/rev settings move the wrong distance; the travel calibration flags them.</p>
+<div class="row" style="gap:14px">
+<div style="flex:1">
+<h3>Mega ↔ drivers</h3>
+<table class="tight">
+  <tr><th>Mega</th><th>Signal</th><th>To</th></tr>
+  <tr><td>D22</td><td>STEP A</td><td>Driver A PUL+</td></tr>
+  <tr><td>D23</td><td>STEP B</td><td>Driver B PUL+</td></tr>
+  <tr><td>D24</td><td>DIR A</td><td>Driver A DIR+</td></tr>
+  <tr><td>D25</td><td>DIR B</td><td>Driver B DIR+</td></tr>
+  <tr><td>GND</td><td>–</td><td>PUL− and DIR− of both</td></tr>
+</table>
+<p>ENA+/ENA− stay unconnected (enabled).</p>
+<h3>HX711 → Mega (default)</h3>
+<table class="tight">
+  <tr><td>VCC and VDD</td><td>Mega 5V</td></tr>
+  <tr><td>GND</td><td>Mega GND</td></tr>
+  <tr><td>DAT / CLK</td><td>D26 / D27</td></tr>
+</table>
+</div>
+<div style="flex:1">
+<h3>HX711 → Raspberry Pi (optional, <code>source = "pi"</code>)</h3>
+<table class="tight">
+  <tr><td>VDD</td><td>Pi <b>3.3V</b> (pin 17). <b>Not 5V</b>: it sets the DAT voltage</td></tr>
+  <tr><td>VCC</td><td>Pi 5V (pin 2)</td></tr>
+  <tr><td>GND</td><td>Pi GND (pin 30)</td></tr>
+  <tr><td>DAT</td><td>GPIO5 (pin 29)</td></tr>
+  <tr><td>CLK</td><td>GPIO6 (pin 31)</td></tr>
+</table>
+<h3>Load cell → HX711 (both)</h3>
+<table class="tight">
+  <tr><td>E+ / E−</td><td>Excitation (usually red / black)</td></tr>
+  <tr><td>A+ / A−</td><td>Signal (usually green / white)</td></tr>
+</table>
+<p>The Pi only reads the amplifier and forwards every reading; the Mega still does the tare, calibration and stops. If the Pi gets no readings, the app falls back to the Mega's HX711 and says so. Recalibrate after moving the amplifier.</p>
+</div>
+</div>
+<h2>Bring-up checklist</h2>
+<ol>
+  <li><b>Drivers:</b> S2 = 5V and the DIP setting above on both. Motors connected before power-up.</li>
+  <li><b>Firmware:</b> upload; <code>?</code> in the Serial Monitor prints the menu. <code>STATUS</code> shows <code>lc=1</code> only with an HX711 on the Mega.</li>
+  <li><b>One motor at a time</b>, screws uncoupled if possible: <code>MOTORS A</code>, <code>Z</code>, <code>V1</code>, <code>M5</code>. Expect 5.0&nbsp;mm in 5.0&nbsp;s. Then <code>MOTORS B</code>.</li>
+  <li><b>Both motors:</b> <code>MOTORS AB</code>, <code>M5</code>: same distance, same direction. If B is reversed: <code>SET invert_b 1</code>, <code>SAVE</code>.</li>
+  <li><b>Cancel:</b> <code>V0.5</code>, <code>M20</code>, then <code>x</code> mid-move: it stops at once; <code>H</code> returns to 0.</li>
+  <li><b>Load cell:</b> <code>vsbc loadcell</code>: about 10 readings/s (80 with the jumper cut), counts that change when you press.</li>
+  <li><b>App:</b> run <code>vsbc</code>, connect, and calibrate in the order of section 5.</li>
+  <li><b>Safety tests</b> with a low <code>max_load</code>: press during a jog → <code>OVERLOAD</code>; unplug the HX711 during a <code>RUN</code> → <code>LOADCELL</code>; kill the app during a move → <code>WATCHDOG</code> within 3&nbsp;s.</li>
+  <li><b>First test:</b> a sacrificial specimen at a slow rate. Check that elapsed time matches distance ÷ rate.</li>
+</ol>
+</section>
+
+<!-- ============================================================== E -->
+<section class="chapter appendix" id="apx-files">
+<h1><span class="n">E</span>Output files in full</h1>
+<pre><code>Outputs/
+├── tests/2026-09-29/153012_A1/
+│   ├── data.csv        every sample, written while the test runs
+│   ├── meta.json       settings, firmware, machine settings, calibration, start/end,
+│   │                   stop reason, units
+│   ├── summary.json    results in N and mm
+│   ├── summary.txt     the same, readable, in the display units
+│   ├── plot.png        load vs extension (+ stress vs strain with area and gauge)
+│   ├── serial.log      serial traffic during the test (without data lines)
+│   ├── video.mp4       with the camera: playback time = data.csv time_s,
+│   │                   time and load on each frame
+│   └── camera/         images/frame_*.tif, frames.csv, sync.json, roi.npz,
+│                       pyvale_results/, plots/, crack tips, postprocess.log
+├── upload/2026-09-29/153012_A1.zip          one file per test, for the cloud
+├── camera/2026-09-29/160000_noise/          a recording made without a test
+├── camera/last_roi.npz                      ROI, seed and notch tip (Camera tab)
+├── calibration/2026-09-29_150100_load.json  one record per calibration
+├── logs/vsbc.log, logs/camera.log           app log (rotating), camera process
+├── logs/2026-09-29_15-00-02_serial.log      each connection's serial session
+├── preferences.json                         Display choices, layout, last settings
+├── last_position.json                       position saved at the last clean exit
+└── pending_load_calibration.json            only after calibrate load --no-mega,
+                                             until the Mega has it</code></pre>
+<h2><code>data.csv</code> columns</h2>
+<table class="tight">
+  <tr><th class="nw">Column</th><th>Meaning</th></tr>
+  <tr><td><code>time_s</code></td><td>Time since the test started, from the Mega's clock (no USB jitter), to 0.1&nbsp;ms</td></tr>
+  <tr><td><code>position_mm</code>, <code>extension_mm</code></td><td>Crosshead position from the reference; position − position at the start</td></tr>
+  <tr><td><code>load_N</code></td><td>Load, tension positive</td></tr>
+  <tr><td><code>stress_MPa</code>, <code>strain</code></td><td>Only with area / gauge length (strain from the crosshead)</td></tr>
+  <tr><td><code>raw_counts</code>, <code>state</code></td><td>Raw HX711 reading; <code>R</code> during the test</td></tr>
+  <tr><td><code>load_lbf</code>, <code>extension_in</code>, …</td><td>Only with display units other than N and mm: the same values in those units</td></tr>
+  <tr><td><code>frame</code>, <code>frame_dt_ms</code></td><td>Only with the camera: the frame saved for this row (<code>camera/images/frame_&lt;frame&gt;.tif</code>) and its time offset</td></tr>
+</table>
+<h2>Results</h2>
+<p>Peak load and extension at peak; break load and extension; apparent stiffness (fitted 10–40&nbsp;% of peak, with R²); energy to peak and to break. With area and gauge length also UTS, apparent modulus, strain at peak and elongation at break. <code>vsbc analyze</code> recalculates them.</p>
+</section>
+
+<!-- ============================================================== F -->
+<section class="chapter appendix" id="apx-preflight">
+<h1><span class="n">F</span>Start-test errors and warnings</h1>
+<p><span class="ui">Start test</span> checks everything first. <b>Errors</b> stop the test from starting; <b>warnings</b> are shown with "Start anyway?".</p>
+<h2>Errors</h2>
+<table class="tight">
+  <tr><th style="width:52%">Message</th><th>Meaning / fix</th></tr>
+  <tr><td>Not connected.</td><td>Connect first.</td></tr>
+  <tr><td>The machine is moving.</td><td>Wait or press STOP.</td></tr>
+  <tr><td>Enter a specimen ID.</td><td>Test tab › Specimen.</td></tr>
+  <tr><td>Load cell not responding.</td><td>Check the HX711 wiring (section 8).</td></tr>
+  <tr><td>Load cell not calibrated (Machine tab &gt; Calibration).</td><td>Section 5, step 3.</td></tr>
+  <tr><td>Position not referenced: set zero at the reference position (Machine tab).</td><td>Machine › Position reference.</td></tr>
+  <tr><td>Both motors must be selected (motor select: AB).</td><td>After service mode; Ready list › Motors….</td></tr>
+  <tr><td>Rate must be 0.12 to 600 mm/min.</td><td>The upper bound follows <code>steps_per_mm</code> and the speed cap.</td></tr>
+  <tr><td>Max extension must be more than 0.</td><td></td></tr>
+  <tr><td>Start position … + max extension … passes the upper travel limit (…).</td><td>Lower max extension, or move the limit.</td></tr>
+  <tr><td>Break drop must be between 0 and 100 %. / area_mm2 (gauge_length_mm) cannot be negative.</td><td>Fix the setting.</td></tr>
+  <tr><td>A camera recording is still running or being written (Camera tab)…</td><td>Stop it or wait for it to finish.</td></tr>
+  <tr><td>Not enough disk space for the camera: this test can take up to …</td><td>Free space, save fewer frames, or shorten the test.</td></tr>
+</table>
+<h2>Warnings</h2>
+<table class="tight">
+  <tr><th style="width:52%">Message</th><th>Meaning</th></tr>
+  <tr><td>The machine overload cutoff (max_load) is off. Set it under Machine &gt; Calibration.</td><td>Only the per-test stops protect the load cell.</td></tr>
+  <tr><td>Break detection is off: the test runs until the max extension or a load limit.</td><td>Break drop is 0.</td></tr>
+  <tr><td>Stop load … N is above the machine limit … N.</td><td>The overload cutoff will stop it first.</td></tr>
+  <tr><td>The camera is not running (…): this test is NOT recorded.</td><td>Start the camera to record it.</td></tr>
+  <tr><td>No usable ROI for this camera image…</td><td>Frames are recorded; DIC and the trackers are skipped.</td></tr>
+  <tr><td>No notch tip set (Camera tab &gt; Edit ROI)…</td><td>The crack trackers are skipped.</td></tr>
+  <tr><td>Storage is low: … free.</td><td>Below <code>warn_free_gb</code>.</td></tr>
+  <tr><td>The RAM buffer (…) is more than half the free RAM…</td><td>Lower it in the Camera tab.</td></tr>
+  <tr><td>Live DIC is on: on the Pi it competes with the camera…</td><td>Turn it off unless you need it.</td></tr>
+</table>
+<h2>Banner warnings at connect and during use</h2>
+<p>Firmware version differs from the expected one (upload again) · load cell not found / not calibrated · load-cell sample rate differs from <code>rate_hz</code> · position not referenced · cannot read / no readings from the HX711 on the Pi (falls back to the Mega's) · a load-cell calibration made without the Mega was applied or refused · "Last move stopped: …" (a safety stop) · "The Mega reset" · "Connection lost" · storage low or almost full · the camera stopped recording · tension reading negative.</p>
+</section>
+
+<!-- ============================================================== G -->
+<section class="chapter appendix" id="apx-safety">
+<h1><span class="n">G</span>Safety and limitations</h1>
+<div class="warn"><p><b>Fit a hardware E-stop that cuts motor power.</b> The firmware's stops are software. A stuck driver or a firmware fault is only stopped by cutting power.</p></div>
+<ul>
+  <li><b>The Mega stops a move on its own when:</b> |load| ≥ <code>max_load</code> while rising, or the HX711 saturates (<code>OVERLOAD</code>); the stop load or break condition is reached during a test; no load reading arrives for 0.5&nbsp;s during a test (<code>LOADCELL</code>; with the HX711 on the Pi this also covers a frozen app); the app has sent nothing for 3&nbsp;s (<code>WATCHDOG</code>).</li>
+  <li><b>Open loop.</b> The Mega counts steps; nothing measures the real position, and a stall is not detected. Signs: elapsed time that doesn't match distance ÷ rate, buzzing or grinding, a short measured displacement. Lower the rate or raise the driver current.</li>
+  <li><b>No limit switches yet.</b> Software travel limits only protect the screws if the position reference is right. The firmware supports switch inputs (<code>LIMIT_MIN_PIN</code>, <code>LIMIT_MAX_PIN</code>, <code>ESTOP_PIN</code> in <code>config.h</code>; wire to GND when triggered).</li>
+  <li><b>No acceleration ramp</b>, on purpose, to keep the rate constant from the first step. The 120&nbsp;RPM cap (10&nbsp;mm/s) keeps starts reliable.</li>
+  <li><b>Load readings over USB</b> (HX711 on the Pi) add a few milliseconds before the Mega sees them. That is small next to the two-sample break detection, but not zero.</li>
+  <li><b>Service mode</b> (one motor) racks the crosshead if the screws are coupled. Use it for bring-up only.</li>
+  <li><b>Apparent values.</b> Crosshead extension includes frame and grip compliance; DIC strain does not.</li>
+</ul>
+</section>
+
+<!-- ============================================================== H -->
+<section class="chapter appendix cont" id="apx-misc">
+<h1><span class="n">H</span>Legacy sketches, to-do list, references</h1>
+<h2>Legacy sketches (<code>firmware/legacy/</code>)</h2>
+<p>The two standalone sketches from before the redesign (<code>dual_stepper_mega</code>: both motors in lockstep; <code>single_driver_test</code>: one driver at a time) still upload and run from the Arduino IDE. They are <b>motion only</b> (no load cell, load stops or EEPROM calibration), not kept in sync with <code>vsbc_firmware</code>, and the app can't use them: connecting says "No answer from vsbc_firmware" and points to System › Firmware. Equivalents: <code>v0.5</code> then <code>d20</code>, <code>o</code>/<code>c</code> → <code>v0.5</code> then <code>m20</code>/<code>m-20</code>; <code>a</code>/<code>b</code> → <code>MOTORS A</code>/<code>B</code>; one revolution (<code>f</code>/<code>r</code>) → <code>m5</code>/<code>m-5</code>; <code>s4000</code> steps/s → <code>v6.25</code>.</p>
+<h2>Known limitations and to-do</h2>
+<ul>
+  <li>Hardware: set SW5–8 to ON ON OFF ON and S2 to 5V on both drivers; choose the load cell and wire the HX711 to the Mega; fit an E-stop (and optionally limit switches); check motor temperature.</li>
+  <li>Run firmware 2.3.0 on the real Mega and try the GUI on the Pi 5. Both are so far tested against the simulator, on Windows.</li>
+  <li>Set real travel limits and the overload cutoff after the first calibration; measure the load-cell delay with a tap test.</li>
+  <li>Camera on the Pi: <code>install_pi.sh --camera</code>, then <code>vsbc camera check</code>. Expect 0 dropped frames at 478&nbsp;fps; one frame per load sample needs ~7.7&nbsp;MB/s at 10/s (61&nbsp;MB/s at 80/s), so use a USB 3 SSD if the SD card is slower. The camera integration is tested with the simulated camera only.</li>
+  <li>If the HX711 moves to the Pi, measure its discarded-reading rate on the Pi 5 with the GUI running.</li>
+  <li>Only pull-to-failure is built in; cyclic, hold and compression tests can follow the same pattern. A compliance correction or extensometer would give true specimen strain. A faster ADC (NAU7802, ADS1220) would give more frames paired with load readings.</li>
+</ul>
+<h2>References</h2>
+<ul>
+  <li>CNCKitchen/Open-Pull: Arduino + HX711 + two steppers. Why load cell and motion both belong on the microcontroller.</li>
+  <li>FrancescoNegri/universal-testing-machine: a Pi-only tester; the timestamped JSON calibration records.</li>
+  <li>Raspberry Pi forum threads on HX711 bit-banging from Linux: why the Pi reader times every pulse and the safety decisions stay on the Mega.</li>
+  <li>MrYsLab/telemetrix (why this design keeps its own Timer1 step engine) · Real-Time-Py-Serial-Plotter (the PyQt5 + pyqtgraph live plots) · Arduino CLI on a Raspberry Pi (<code>vsbc flash</code>) · Instron's tensile testing guide (end of test by % drop from peak; size the load cell for 10–90&nbsp;% of capacity).</li>
+  <li>Stepperonline DM542T V4.0 user manual (Rev 4.0, Oct 2020); <code>docs/hardware.md</code> has the driver tables and timing details.</li>
+</ul>
+</section>
+
+</body>
+</html>

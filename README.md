@@ -73,6 +73,7 @@ Arduino Mega 2560 ── firmware/vsbc_firmware ──────────�
 | [`tests/`](tests/) | pytest suite (runs against the simulator) |
 | [`docs/protocol.md`](docs/protocol.md) | The serial protocol: every command, reply, event and data line |
 | [`docs/hardware.md`](docs/hardware.md) | Drivers (DIP switches, S2), wiring details, speed limit, step engine |
+| [`VSBC_Manual.pdf`](VSBC_Manual.pdf) | The short manual (GUI, running a test, calibration, camera, codebase), with screenshots. Source in [`docs/manual/`](docs/manual/); rebuild with `python docs/manual/build_manual.py` |
 | [`scripts/install_pi.sh`](scripts/install_pi.sh) | One-time Raspberry Pi setup |
 | [`config.example.toml`](config.example.toml) | Optional settings for the app; copy to `config.toml` |
 | `Outputs/` | Test data, calibration records and logs (not in git) |
