@@ -8,7 +8,6 @@ before a test (PullTestRunner.preflight) still run when Start is pressed.
 
 from __future__ import annotations
 
-import html
 from dataclasses import dataclass, field
 
 from vsbc.gui.common import Qt, QtWidgets, button, card_style, em, theme, themed
@@ -162,7 +161,8 @@ class ReadyCard(QtWidgets.QFrame):
         for row, item in enumerate(shown):
             colour, mark = {"ok": (t.success, "✓"), "todo": (t.warning, "●"), "warn": (t.warning, "⚠")}[item.level]
             mark_label = QtWidgets.QLabel(f"<span style='color:{colour}; font-weight:bold'>{mark}</span>")
-            text = QtWidgets.QLabel(html.escape(item.text))
+            text = QtWidgets.QLabel(item.text)
+            text.setTextFormat(Qt.TextFormat.PlainText)     # "Camera tab > Edit ROI" shows as written
             text.setWordWrap(True)
             if item.level == "ok":
                 text.setStyleSheet(f"QLabel {{ color: {t.muted}; }}")
@@ -176,6 +176,15 @@ class ReadyCard(QtWidgets.QFrame):
                 b.setMinimumHeight(em(2.0))
                 self.fix_buttons[item.key] = b
                 self.rows.addWidget(b, row, 2, Qt.AlignmentFlag.AlignVCenter)
+
+    def show_running(self) -> None:
+        """During a test: no checklist (the camera recording it lists is the test's own)."""
+        if self._signature == ("running",):
+            return
+        self.show_items([])
+        self._signature = ("running",)
+        self.title.setText(f"<span style='color:{theme().success}'>▶</span> Test running")
+        themed(self, lambda: card_style(theme().success))
 
     def _fix(self, key: str) -> None:
         for item in self.items:

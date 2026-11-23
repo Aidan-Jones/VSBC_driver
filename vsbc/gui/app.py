@@ -354,13 +354,18 @@ class MainWindow(QtWidgets.QMainWindow):
             log.exception("readiness check failed")
             return
         self.readiness_items = items
-        self.test_panel.ready.show_items(items)
+        running = self.runner is not None
+        if running:     # the checklist is for the next test; this one's camera recording is not a step to do
+            self.test_panel.ready.show_running()
+        else:
+            self.test_panel.ready.show_items(items)
         todo = sum(1 for i in items if i.required)
         if not self.machine.connected:
             self.ready_chip.hide()
             return
-        state = "warning" if todo else "success"
-        self.ready_chip.setText(f"●  {todo} step{'s' if todo > 1 else ''} before a test" if todo else "✓  Ready")
+        state = "warning" if todo and not running else "success"
+        self.ready_chip.setText("▶  Test running" if running else
+                                f"●  {todo} step{'s' if todo > 1 else ''} before a test" if todo else "✓  Ready")
         themed(self.ready_chip, lambda c=state: (
             f"QPushButton {{ color: {getattr(theme(), c)}; border: 2px solid {getattr(theme(), c)};"
             f" font-weight: bold; border-radius: {em(1.2)}px; padding: 0 {em(0.8)}px; }}"))
